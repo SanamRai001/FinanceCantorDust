@@ -103,6 +103,13 @@ body {
   overflow-y: auto;
 }
 
+/* ── Categories ──────────────────────────── */
+.categories {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 /* ── Sidebar ────────────────────────────── */
 .sidebar {
   width: var(--sidebar-w);
@@ -375,7 +382,35 @@ body {
   flex-direction: column;
   gap: 16px;
 }
+/* ── Line items ──────────────────────────── */
+.line-items {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
 
+.line-items__table {
+  margin: 0;
+}
+
+.line-items__table td {
+  padding: 6px 10px;
+}
+
+.line-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+}
+
+.line-input:focus {
+  border-color: var(--blue);
+}
 /* ── Type toggle ─────────────────────────── */
 .type-toggle {
   display: flex;

@@ -9,6 +9,8 @@ import partyRoutes from './routes/partyRoutes.js';
 import exportRoutes from './routes/exportRoutes.js';
 import authRoutes from './routes/authRoutes.js'
 import protect from './middleware/auth.js'
+import categoryRoutes from './routes/categoryRoutes.js';
+
 dotenv.config();
 
 const app = express();
@@ -32,6 +34,7 @@ app.use('/api/reports', protect, reportRoutes);
 app.use("/api/party", protect, partyRoutes);
 app.use("/api/export", protect, exportRoutes);
 app.use("/api/auth", authRoutes);
+app.use('/api/categories', protect,categoryRoutes);
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

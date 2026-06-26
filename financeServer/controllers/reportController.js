@@ -26,7 +26,10 @@ export const getLedger = async (req, res) => {
     // optional filters
     if (req.query.type)    filter.type = req.query.type;
     if (req.query.payment_method) filter.payment_method = req.query.payment_method;
-
+// ADD in getLedger — after payment_method filter
+if (req.query.category) {
+  filter.category = req.query.category;
+}
     // party filter — accepts ObjectId or name string
     if (req.query.party) {
       const isObjectId = req.query.party.match(/^[0-9a-fA-F]{24}$/);
@@ -50,9 +53,10 @@ export const getLedger = async (req, res) => {
       filter.description = { $regex: req.query.keyword, $options: 'i' };
     }
 
-    const transactions = await Transaction.find(filter)
-      .populate('party', 'name type vat_number pan_number')
-      .sort({ date: 1 });
+const transactions = await Transaction.find(filter)
+  .populate('party',    'name type vat_number pan_number')
+  .populate('category', 'name color type group')  // ADD this
+  .sort({ date: 1 });
 
     // calculate running balance row by row
     let balance      = 0;

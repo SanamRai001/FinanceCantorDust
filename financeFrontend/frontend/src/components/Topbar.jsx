@@ -6,6 +6,7 @@ const pageTitles = {
   '/transactions': 'Transactions',
   '/reports':      'Reports',
   '/parties':      'Parties',
+  '/categories': 'Categories'
 };
 
 const Topbar = () => {

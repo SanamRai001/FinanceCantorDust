@@ -30,6 +30,11 @@ const Sidebar = () => {
             isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
           Parties
         </NavLink>
+        <NavLink to="/categories"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Categories
+</NavLink>
       </nav>
 
     </div>

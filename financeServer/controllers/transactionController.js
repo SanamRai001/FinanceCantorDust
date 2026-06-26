@@ -1,17 +1,15 @@
 import Transaction from '../models/Transaction.js';
-import Party from '../models/Party.js';
+import Party       from '../models/Party.js';
+import Category    from '../models/Category.js';
 
 // ── GET all transactions (with filters) ───────────────────────
 export const getTransactions = async (req, res) => {
   try {
     const filter = {};
 
-    // type filter — income or expense
     if (req.query.type) filter.type = req.query.type;
 
-    // FIX: party filter needs to handle both ObjectId and name search
-    // if someone passes a party ID it works directly
-    // if they pass a name string, find the party first then filter by _id
+    // party filter — accepts ObjectId or name string
     if (req.query.party) {
       const isObjectId = req.query.party.match(/^[0-9a-fA-F]{24}$/);
       if (isObjectId) {
@@ -25,6 +23,11 @@ export const getTransactions = async (req, res) => {
       }
     }
 
+    // ADD: category filter
+    if (req.query.category) {
+      filter.category = req.query.category;
+    }
+
     // date range filter
     if (req.query.from || req.query.to) {
       filter.date = {};
@@ -32,24 +35,22 @@ export const getTransactions = async (req, res) => {
       if (req.query.to)   filter.date.$lte = new Date(req.query.to);
     }
 
-    // ADD: payment method filter
     if (req.query.payment_method) {
       filter.payment_method = req.query.payment_method;
     }
 
-    // ADD: keyword search across description and bs_date
     if (req.query.keyword) {
       filter.$or = [
         { description: { $regex: req.query.keyword, $options: 'i' } },
-        { bs_date: { $regex: req.query.keyword, $options: 'i' } }
+        { bs_date:     { $regex: req.query.keyword, $options: 'i' } }
       ];
     }
 
     const txns = await Transaction.find(filter)
-      .populate('party', 'name vat_number pan_number type') // FIX: populate party details
+      .populate('party',    'name vat_number pan_number type')
+      .populate('category', 'name color type group')
       .sort({ date: 1 });
 
-    // ADD: calculate running balance across the result set
     let balance = 0;
     const txnsWithBalance = txns.map(txn => {
       const doc = txn.toObject();
@@ -59,17 +60,14 @@ export const getTransactions = async (req, res) => {
     });
 
     res.json({
-      success: true,
-      count: txns.length,        // ADD: total count useful for frontend
-      closing_balance: balance,  // ADD: final balance after all rows
-      data: txnsWithBalance
+      success:         true,
+      count:           txns.length,
+      closing_balance: balance,
+      data:            txnsWithBalance
     });
 
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
@@ -77,12 +75,13 @@ export const getTransactions = async (req, res) => {
 export const getTransactionById = async (req, res) => {
   try {
     const txn = await Transaction.findById(req.params.id)
-      .populate('party', 'name vat_number pan_number type');
+      .populate('party',    'name vat_number pan_number type')
+      .populate('category', 'name color type group');
 
     if (!txn) {
       return res.status(404).json({
         success: false,
-        error: 'Transaction not found'
+        error:   'Transaction not found'
       });
     }
 
@@ -93,51 +92,90 @@ export const getTransactionById = async (req, res) => {
   }
 };
 
+// ── helper: parse line items from FormData ────────────────────
+// FormData cannot send nested arrays so we send them as JSON string
+// and parse them here
+const parseLineItems = (raw) => {
+  if (!raw) return [];
+  try {
+    const items = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(items)) return [];
+    return items.map(item => ({
+      name:       String(item.name       || '').trim(),
+      quantity:   Number(item.quantity   || 1),
+      unit_price: Number(item.unit_price || 0),
+      total:      0 // hook calculates this
+    })).filter(item => item.name && item.unit_price > 0);
+  } catch {
+    return [];
+  }
+};
+
 // ── POST create transaction ───────────────────────────────────
 export const createTransaction = async (req, res) => {
   try {
     const {
       date, type, party, description,
-      net_amount, vat_applicable, vat_amount, gross_amount,
+      net_amount, vat_applicable, vat_percent, vat_amount,
       payment_method, payment_ref,
       bill_ref_type, bill_ref_number,
-      bs_date,
-      voucher_type
+      bs_date, category, discount
     } = req.body;
 
-    // validate party exists before saving
-   if (party) {
-  const partyExists = await Party.findById(party);
-  if (!partyExists) {
-    return res.status(400).json({
-      success: false,
-      error: 'Party not found — save the party first'
-    });
-  }
-}
+    // validate party if provided
+    if (party) {
+      const partyExists = await Party.findById(party);
+      if (!partyExists) {
+        return res.status(400).json({
+          success: false,
+          error:   'Party not found — save the party first'
+        });
+      }
+    }
+
+    // validate category if provided
+    if (category) {
+      const catExists = await Category.findById(category);
+      if (!catExists) {
+        return res.status(400).json({
+          success: false,
+          error:   'Category not found'
+        });
+      }
+    }
+
+    // parse line items from FormData JSON string
+    const line_items = parseLineItems(req.body.line_items);
 
     const txn = new Transaction({
-  date,
-  type,
-  party:           party || null,
-  description:     description || '',
-  net_amount,
-  vat_applicable,
-  vat_amount:      vat_amount      || 0,
-  gross_amount:    gross_amount    || net_amount + (vat_amount || 0),
-  payment_method,
-  payment_ref:     payment_ref     || null,
-  bill_ref_type:   bill_ref_type   || 'none',
-  bill_ref_number: bill_ref_number || null,
-  bs_date:         bs_date         || null,
-  attachment:      req.file ? req.file.path : null,
-  // voucher_type is NOT set here — pre-save hook handles it
-});
+      date,
+      type,
+      party:           party           || null,
+      category:        category        || null,
+      description:     description     || '',
+      line_items,
+      discount:        Number(discount || 0),
+      // if line items exist, net_amount is calculated by the hook
+      // if no line items, use what was sent
+      net_amount:      line_items.length > 0 ? 0 : Number(net_amount || 0),
+      vat_applicable:  vat_applicable === 'true' || vat_applicable === true,
+      vat_percent:     Number(vat_percent || 0),
+      vat_amount:      Number(vat_amount  || 0),
+      gross_amount:    0, // hook calculates this
+      payment_method,
+      payment_ref:     payment_ref     || null,
+      bill_ref_type:   bill_ref_type   || 'none',
+      bill_ref_number: bill_ref_number || null,
+      bs_date:         bs_date         || null,
+      attachment:      req.file ? req.file.path : null,
+      // voucher_type — hook sets this
+    });
 
-    await txn.save(); // pre-save hook sets debit and credit automatically
-
-    // populate party before sending back so frontend gets the name
-    await txn.populate({ path: 'party', select: 'name vat_number type' });
+    await txn.save();
+    await txn.populate([
+      { path: 'party',    select: 'name vat_number type' },
+      { path: 'category', select: 'name color type group' }
+    ]);
 
     res.status(201).json({ success: true, data: txn });
 
@@ -154,27 +192,35 @@ export const updateTransaction = async (req, res) => {
     if (!txn) {
       return res.status(404).json({
         success: false,
-        error: 'Transaction not found'
+        error:   'Transaction not found'
       });
     }
 
-    // update only fields that were sent
     const allowed = [
-      'date', 'type', 'party', 'description',
-      'net_amount', 'vat_applicable', 'vat_amount', 'gross_amount',
-      'payment_method', 'payment_ref',
-      'bill_ref_type', 'bill_ref_number', 'bs_date', 'voucher_type' 
+      'date', 'type', 'party', 'category', 'description',
+      'net_amount', 'vat_applicable', 'vat_percent', 'vat_amount',
+      'discount', 'payment_method', 'payment_ref',
+      'bill_ref_type', 'bill_ref_number', 'bs_date'
     ];
 
     allowed.forEach(field => {
       if (req.body[field] !== undefined) txn[field] = req.body[field];
     });
 
-    // update attachment if a new file was uploaded
+    // handle line items update
+    const line_items = parseLineItems(req.body.line_items);
+    if (line_items.length > 0) {
+      txn.line_items  = line_items;
+      txn.net_amount  = 0; // hook recalculates from line items
+    }
+
     if (req.file) txn.attachment = req.file.path;
 
-    await txn.save(); // pre-save hook recalculates debit, credit, gross
-    await txn.populate({ path: 'party', select: 'name vat_number type' });
+    await txn.save();
+    await txn.populate([
+      { path: 'party',    select: 'name vat_number type' },
+      { path: 'category', select: 'name color type group' }
+    ]);
 
     res.json({ success: true, data: txn });
 
@@ -191,16 +237,13 @@ export const deleteTransaction = async (req, res) => {
     if (!txn) {
       return res.status(404).json({
         success: false,
-        error: 'Transaction not found'
+        error:   'Transaction not found'
       });
     }
 
     await txn.deleteOne();
 
-    res.json({
-      success: true,
-      message: 'Transaction deleted'
-    });
+    res.json({ success: true, message: 'Transaction deleted' });
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

@@ -106,7 +106,52 @@ export const BS_MONTH_NAMES = [
 
 // AD start date that maps to BS 2000-01-01
 const AD_START = { year: 1943, month: 4, day: 14 }; // April 14 1943
+// ── BS to AD conversion ───────────────────
+export const bsToAD = (bsDateStr) => {
+  if (!bsDateStr) return null;
 
+  // parse BS date string — accepts "2081-04-15" format
+  const parts = bsDateStr.split('-');
+  if (parts.length !== 3) return null;
+
+  const bsYear  = parseInt(parts[0]);
+  const bsMonth = parseInt(parts[1]);
+  const bsDay   = parseInt(parts[2]);
+
+  // validate
+  if (!bsYear || !bsMonth || !bsDay) return null;
+  if (bsMonth < 1 || bsMonth > 12)   return null;
+  if (bsDay   < 1 || bsDay   > 32)   return null;
+  if (!BS_MONTHS[bsYear])             return null;
+
+  // count total days from BS 2000-01-01
+  let totalDays = 0;
+
+  // add days for complete years from 2000 to bsYear-1
+  for (let y = 2000; y < bsYear; y++) {
+    if (!BS_MONTHS[y]) break;
+    totalDays += BS_MONTHS[y].reduce((a, b) => a + b, 0);
+  }
+
+  // add days for complete months in bsYear
+  for (let m = 0; m < bsMonth - 1; m++) {
+    totalDays += BS_MONTHS[bsYear][m];
+  }
+
+  // add remaining days
+  totalDays += bsDay - 1;
+
+  // add to AD start date (April 14 1943 = BS 2000-01-01)
+  const adStart = new Date(1943, 3, 14); // month is 0-indexed
+  const adDate  = new Date(adStart.getTime() + totalDays * 24 * 60 * 60 * 1000);
+
+  // return as YYYY-MM-DD string for HTML date input
+  const y = adDate.getFullYear();
+  const m = String(adDate.getMonth() + 1).padStart(2, '0');
+  const d = String(adDate.getDate()).padStart(2, '0');
+
+  return `${y}-${m}-${d}`;
+};
 // ── AD to BS conversion ───────────────────
 export const adToBS = (adDate) => {
   const date = adDate instanceof Date ? adDate : new Date(adDate);

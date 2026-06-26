@@ -3,12 +3,13 @@ import * as XLSX from 'xlsx';
 import API from '../services/api';
 
 const Reports = () => {
-  const [ledger,  setLedger]  = useState([]);
-  const [summary, setSummary] = useState({ total_debit: 0, total_credit: 0, closing_balance: 0 });
-  const [parties, setParties] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    from: '', to: '', type: '', party: '', keyword: ''
+  const [ledger,     setLedger]     = useState([]);
+  const [summary,    setSummary]    = useState({ total_debit: 0, total_credit: 0, closing_balance: 0 });
+  const [parties,    setParties]    = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [filters,    setFilters]    = useState({
+    from: '', to: '', type: '', party: '', category: '', keyword: ''
   });
 
   const fetchLedger = (params = {}) => {
@@ -25,6 +26,7 @@ const Reports = () => {
   useEffect(() => {
     fetchLedger();
     API.get('/party').then(res => setParties(res.data.data));
+    API.get('/categories').then(res => setCategories(res.data.data));
   }, []);
 
   const handleFilter = (e) => {
@@ -40,7 +42,7 @@ const Reports = () => {
   };
 
   const handleReset = () => {
-    setFilters({ from: '', to: '', type: '', party: '', keyword: '' });
+    setFilters({ from: '', to: '', type: '', party: '', category: '', keyword: '' });
     fetchLedger();
   };
 
@@ -52,7 +54,7 @@ const Reports = () => {
       const res = await API.get('/export/tally', { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a   = document.createElement('a');
-      a.href    = url;
+      a.href     = url;
       a.download = `tally-export-${Date.now()}.xml`;
       a.click();
       window.URL.revokeObjectURL(url);
@@ -64,65 +66,49 @@ const Reports = () => {
 
   // ── Excel export ──────────────────────────
   const handleExportExcel = () => {
-    if (ledger.length === 0) {
-      alert('No data to export');
-      return;
-    }
+    if (ledger.length === 0) { alert('No data to export'); return; }
 
-    // build rows for the sheet
     const rows = ledger.map(t => ({
-      'Date (BS)':       t.bs_date || new Date(t.date).toLocaleDateString(),
-      'Date (AD)':       new Date(t.date).toLocaleDateString(),
-      'Party':           t.party?.name  || '—',
-      'Description':     t.description  || '—',
-      'Voucher Type':    t.voucher_type || '—',
-      'Payment Method':  t.payment_method || '—',
-      'Bill Reference':  t.bill_ref_number || '—',
-      'Debit (Rs.)':     t.debit  || 0,
-      'Credit (Rs.)':    t.credit || 0,
-      'Balance (Rs.)':   t.running_balance || 0,
+      'Date (BS)':      t.bs_date || new Date(t.date).toLocaleDateString(),
+      'Date (AD)':      new Date(t.date).toLocaleDateString(),
+      'Party':          t.party?.name      || '—',
+      'Category':       t.category?.name   || '—',
+      'Description':    t.description      || '—',
+      'Voucher Type':   t.voucher_type     || '—',
+      'Payment Method': t.payment_method   || '—',
+      'Bill Reference': t.bill_ref_number  || '—',
+      'Debit (Rs.)':    t.debit            || 0,
+      'Credit (Rs.)':   t.credit           || 0,
+      'Balance (Rs.)':  t.running_balance  || 0,
     }));
 
-    // add totals row at the bottom
     rows.push({
-      'Date (BS)':       '',
-      'Date (AD)':       '',
-      'Party':           '',
-      'Description':     'TOTALS',
-      'Voucher Type':    '',
-      'Payment Method':  '',
-      'Bill Reference':  '',
-      'Debit (Rs.)':     summary.total_debit,
-      'Credit (Rs.)':    summary.total_credit,
-      'Balance (Rs.)':   summary.closing_balance,
+      'Date (BS)':      '',
+      'Date (AD)':      '',
+      'Party':          '',
+      'Category':       '',
+      'Description':    'TOTALS',
+      'Voucher Type':   '',
+      'Payment Method': '',
+      'Bill Reference': '',
+      'Debit (Rs.)':    summary.total_debit,
+      'Credit (Rs.)':   summary.total_credit,
+      'Balance (Rs.)':  summary.closing_balance,
     });
 
-    // create workbook
-    const worksheet  = XLSX.utils.json_to_sheet(rows);
-    const workbook   = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook  = XLSX.utils.book_new();
 
-    // set column widths
     worksheet['!cols'] = [
-      { wch: 14 }, // Date BS
-      { wch: 14 }, // Date AD
-      { wch: 20 }, // Party
-      { wch: 30 }, // Description
-      { wch: 14 }, // Voucher type
-      { wch: 14 }, // Payment method
-      { wch: 16 }, // Bill ref
-      { wch: 14 }, // Debit
-      { wch: 14 }, // Credit
-      { wch: 14 }, // Balance
+      { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 16 },
+      { wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 },
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Ledger');
-
-    // generate filename with date range if filters applied
     const from     = filters.from || 'all';
     const to       = filters.to   || 'time';
-    const filename = `ledger-${from}-to-${to}.xlsx`;
-
-    XLSX.writeFile(workbook, filename);
+    XLSX.writeFile(workbook, `ledger-${from}-to-${to}.xlsx`);
   };
 
   return (
@@ -155,6 +141,18 @@ const Reports = () => {
             ))}
           </select>
         </div>
+
+        {/* ADD: category filter */}
+        <div className="form-group">
+          <label>Category</label>
+          <select name="category" value={filters.category} onChange={handleFilter}>
+            <option value="">All categories</option>
+            {categories.map(c => (
+              <option key={c._id} value={c._id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="form-group">
           <label>Keyword</label>
           <input type="text" name="keyword" value={filters.keyword}
@@ -205,6 +203,7 @@ const Reports = () => {
               <tr>
                 <th>Date</th>
                 <th>Party</th>
+                <th>Category</th>
                 <th>Description</th>
                 <th>Voucher type</th>
                 <th className="text-right">Debit (Rs.)</th>
@@ -215,7 +214,7 @@ const Reports = () => {
             <tbody>
               {ledger.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="table__empty">
+                  <td colSpan={8} className="table__empty">
                     No transactions found
                   </td>
                 </tr>
@@ -226,7 +225,17 @@ const Reports = () => {
                     {t.bs_date || new Date(t.date).toLocaleDateString()}
                   </td>
                   <td className="bold">{t.party?.name || '—'}</td>
-                  <td>{t.description}</td>
+                  <td>
+                    {t.category ? (
+                      <span className="badge" style={{
+                        background: t.category.color + '22',
+                        color:      t.category.color
+                      }}>
+                        {t.category.name}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td>{t.description || '—'}</td>
                   <td>
                     <span className={`badge badge--${t.voucher_type}`}>
                       {t.voucher_type}
@@ -247,7 +256,7 @@ const Reports = () => {
             {ledger.length > 0 && (
               <tfoot>
                 <tr className="totals-row">
-                  <td colSpan={4} className="bold">Totals</td>
+                  <td colSpan={5} className="bold">Totals</td>
                   <td className="text-right bold income">Rs. {fmt(summary.total_debit)}</td>
                   <td className="text-right bold expense">Rs. {fmt(summary.total_credit)}</td>
                   <td className="text-right bold">Rs. {fmt(summary.closing_balance)}</td>

@@ -7,6 +7,7 @@ import Transactions from './pages/Transactions';
 import Reports      from './pages/Reports';
 import Parties      from './pages/Parties';
 import Login        from './pages/Login';
+import Categories from './pages/Categories';
 
 const ProtectedRoute = ({ children }) => {
   const { isLoggedIn, loading } = useAuth();
@@ -41,6 +42,10 @@ const App = () => {
       <Route path="/parties" element={
         <ProtectedRoute><Layout><Parties /></Layout></ProtectedRoute>
       } />
+
+<Route path="/categories" element={
+  <ProtectedRoute><Layout><Categories /></Layout></ProtectedRoute>
+} />
     </Routes>
   );
 };
