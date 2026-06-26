@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router-dom';
+import { useAuth }     from '../context/AuthContext';
 
 const pageTitles = {
   '/':             'Dashboard',
@@ -8,13 +9,20 @@ const pageTitles = {
 };
 
 const Topbar = () => {
-  const location = useLocation();
-  const title = pageTitles[location.pathname] || 'Nepal Fin-Pro';
+  const location      = useLocation();
+  const { user, logout } = useAuth();
+  const title         = pageTitles[location.pathname] || 'Nepal Fin-Pro';
 
   return (
     <header className="topbar">
       <span className="topbar__title">{title}</span>
-        Login Button    
+      <div className="topbar__right">
+        <span className="topbar__user">{user?.name}</span>
+        <span className="topbar__role">{user?.role}</span>
+        <button className="btn btn--ghost btn--sm" onClick={logout}>
+          Logout
+        </button>
+      </div>
     </header>
   );
 };

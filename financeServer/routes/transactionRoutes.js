@@ -8,6 +8,8 @@ import {
   updateTransaction,
   deleteTransaction
 } from '../controllers/transactionController.js';
+import protect from '../middleware/auth.js';
+import allow   from '../middleware/role.js';
 
 // ── Multer config ─────────────────────────────────────────────
 // controls how uploaded files are stored
@@ -45,16 +47,13 @@ const router = express.Router();
 
 // GET    /api/transactions      ← get all (supports ?type= &party= &from= &to= &keyword= &payment_method=)
 // POST   /api/transactions      ← create new (supports file upload)
+// transactionRoutes.js
 router.route('/')
-  .get(getTransactions)
-  .post(upload.single('attachment'), createTransaction);
+  .get(protect, getTransactions)
+  .post(protect, allow('admin', 'accountant'), upload.single('attachment'), createTransaction);
 
-// GET    /api/transactions/:id  ← get single transaction
-// PUT    /api/transactions/:id  ← update transaction (supports file upload)
-// DELETE /api/transactions/:id  ← delete transaction
 router.route('/:id')
-  .get(getTransactionById)
-  .put(upload.single('attachment'), updateTransaction)
-  .delete(deleteTransaction);
-
+  .get(protect, getTransactionById)
+  .put(protect, allow('admin', 'accountant'), upload.single('attachment'), updateTransaction)
+  .delete(protect, allow('admin'), deleteTransaction);
 export default router;

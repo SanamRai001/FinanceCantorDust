@@ -106,19 +106,21 @@ export const createTransaction = async (req, res) => {
     } = req.body;
 
     // validate party exists before saving
-    const partyExists = await Party.findById(party);
-    if (!partyExists) {
-      return res.status(400).json({
-        success: false,
-        error: 'Party not found — save the party first'
-      });
-    }
+   if (party) {
+  const partyExists = await Party.findById(party);
+  if (!partyExists) {
+    return res.status(400).json({
+      success: false,
+      error: 'Party not found — save the party first'
+    });
+  }
+}
 
     const txn = new Transaction({
       date,
       type,
-      party,
-      description,
+      party: party || null,
+      description: description || '  ',
       net_amount,
       vat_applicable,
       vat_amount:   vat_amount   || 0,

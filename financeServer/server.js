@@ -7,6 +7,8 @@ import transactionRoutes from './routes/transactionRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import partyRoutes from './routes/partyRoutes.js';
 import exportRoutes from './routes/exportRoutes.js';
+import authRoutes from './routes/authRoutes.js'
+import protect from './middleware/auth.js'
 dotenv.config();
 
 const app = express();
@@ -25,10 +27,11 @@ app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
 // Routes
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/reports', reportRoutes);
-app.use("/api/party", partyRoutes);
-app.use("/api/export", exportRoutes);
+app.use('/api/transactions', protect, transactionRoutes);
+app.use('/api/reports', protect, reportRoutes);
+app.use("/api/party", protect, partyRoutes);
+app.use("/api/export", protect, exportRoutes);
+app.use("/api/auth", authRoutes);
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

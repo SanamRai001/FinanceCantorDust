@@ -75,7 +75,27 @@ body {
   font-weight: 700;
   color: var(--blue);
 }
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
 
+.topbar__user {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.topbar__role {
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+  background: var(--blue);
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+}
 /* ── Page content ───────────────────────── */
 .content {
   flex: 1;
@@ -151,7 +171,16 @@ body {
   flex-direction: column;
   gap: 20px;
 }
-
+/* ── Role notice ─────────────────────────── */
+.role-notice {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -419,24 +448,6 @@ td.expense { color: var(--red);   }
   color: var(--text);
 }
 
-.chart-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.chart-legend__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.chart-legend__dot--income  { background: var(--green); }
-.chart-legend__dot--expense { background: var(--red);   }
-.chart-legend__label        { margin-right: 8px;        }
 
 /* ── Chart ───────────────────────────────── */
 .chart {
@@ -447,44 +458,6 @@ td.expense { color: var(--red);   }
   padding-bottom: 28px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
-}
-
-.chart__group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 40px;
-  height: 100%;
-}
-
-.chart__bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: calc(100% - 20px);
-  width: 100%;
-  justify-content: center;
-}
-
-.chart__bar {
-  width: 12px;
-  border-radius: 3px 3px 0 0;
-  transition: height 0.6s ease;
-  min-height: 2px;
-  cursor: pointer;
-}
-
-.chart__bar:hover         { opacity: 0.75; }
-.chart__bar--income       { background: var(--green); }
-.chart__bar--expense      { background: var(--red);   }
-
-.chart__label {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: center;
-  white-space: nowrap;
 }
 
 .chart__empty {
@@ -528,12 +501,32 @@ td.expense { color: var(--red);   }
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text-muted);
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.period-btn:hover       { border-color: var(--blue); color: var(--blue); }
-.period-btn--active     { background: var(--blue); color: white; border-color: var(--blue); }
+/* FIX: hover only applies when NOT active */
+.period-btn:not(.period-btn--active):hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--surface);
+}
 
+/* FIX: active always stays blue with white text */
+.period-btn--active {
+  background: var(--blue);
+  color: white !important;
+  border-color: var(--blue);
+}
+
+/* ── Chart ───────────────────────────────── */
+.chart__empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 40px 0;
+}
+
+/* ── Chart custom range ──────────────────── */
 .chart-custom-range {
   display: flex;
   align-items: center;
@@ -557,6 +550,17 @@ td.expense { color: var(--red);   }
   color: var(--text-muted);
 }
 
+/* ── Table card header ───────────────────── */
+.table-card__header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
 /* ── Reports ─────────────────────────────── */
 .reports {
   display: flex;
@@ -631,3 +635,57 @@ td.expense { color: var(--red);   }
 /* ── Amount colors ───────────────────────── */
 td.income  { color: var(--green); }
 td.expense { color: var(--red);   }
+
+/* ── Login page ──────────────────────────── */
+.login-page {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow);
+}
+
+.login-card__header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.login-card__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+
+.login-card__sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

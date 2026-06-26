@@ -5,19 +5,16 @@ import {
   createParty,
   deleteParty
 } from '../controllers/partyController.js';
+import protect from '../middleware/auth.js';
+import allow   from '../middleware/role.js';
 
 const router = express.Router();
 
-// GET    /api/parties          ← get all parties (supports ?type= &keyword= &active=)
-// POST   /api/parties          ← create a new party
 router.route('/')
-  .get(getParties)
-  .post(createParty);
+  .get(protect, getParties)
+  .post(protect, allow('admin', 'accountant'), createParty);
 
-// GET    /api/parties/:id      ← get single party + transaction summary
-// DELETE /api/parties/:id      ← soft delete if has transactions, hard delete if not
 router.route('/:id')
-  .get(getSingleParty)
-  .delete(deleteParty);
-
+  .get(protect, getSingleParty)
+  .delete(protect, allow('admin'), deleteParty);
 export default router;

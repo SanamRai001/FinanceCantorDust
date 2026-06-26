@@ -29,12 +29,10 @@ const transactionSchema = new mongoose.Schema({
   party: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Party',
-    required: true
   },
 
   description: {
     type: String,
-    required: true,
     trim: true
   },
 

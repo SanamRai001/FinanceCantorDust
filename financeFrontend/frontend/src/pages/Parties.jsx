@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import API from '../services/api';
-
+import { useAuth } from '../context/AuthContext';
 const Parties = () => {
   const [parties, setParties]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const {canEdit, canDelete} = useAuth();
   const [form, setForm]         = useState({
     name: '', type: 'supplier', phone: '', vat_number: '', pan_number: ''
   });
@@ -83,9 +84,11 @@ const Parties = () => {
       {/* Header row */}
       <div className="page-header">
         <h3 className="page-header__title">All Parties</h3>
+        {canEdit && (
         <button className="btn btn--primary" onClick={() => setShowForm(!showForm)}>
-          {showForm ? 'Cancel' : '+ Add Party'}
+          + Add Party
         </button>
+      )}
       </div>
 
       {/* Create party form */}
@@ -152,9 +155,11 @@ const Parties = () => {
                   </span>
                 </td>
                 <td>
-                  <button className="btn btn--danger btn--sm" onClick={() => handleDelete(p._id)}>
-                    Delete
-                  </button>
+                  {canDelete && (
+        <button className="btn btn--danger btn--sm" onClick={() => handleDelete(p._id)}>
+          Delete
+        </button>
+      )}
                 </td>
               </tr>
             ))}
