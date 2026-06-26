@@ -117,23 +117,22 @@ export const createTransaction = async (req, res) => {
 }
 
     const txn = new Transaction({
-      date,
-      type,
-      party: party || null,
-      description: description || '  ',
-      net_amount,
-      vat_applicable,
-      vat_amount:   vat_amount   || 0,
-      gross_amount: gross_amount || net_amount + (vat_amount || 0),
-      payment_method,
-      payment_ref:  payment_ref  || null,
-      bill_ref_type:   bill_ref_type   || 'none',
-      bill_ref_number: bill_ref_number || null,
-      bs_date: bs_date || null,
-      voucher_type: voucher_type || null,
-      // attachment path set by multer middleware — not from req.body
-      attachment: req.file ? req.file.path : null
-    });
+  date,
+  type,
+  party:           party || null,
+  description:     description || '',
+  net_amount,
+  vat_applicable,
+  vat_amount:      vat_amount      || 0,
+  gross_amount:    gross_amount    || net_amount + (vat_amount || 0),
+  payment_method,
+  payment_ref:     payment_ref     || null,
+  bill_ref_type:   bill_ref_type   || 'none',
+  bill_ref_number: bill_ref_number || null,
+  bs_date:         bs_date         || null,
+  attachment:      req.file ? req.file.path : null,
+  // voucher_type is NOT set here — pre-save hook handles it
+});
 
     await txn.save(); // pre-save hook sets debit and credit automatically
 

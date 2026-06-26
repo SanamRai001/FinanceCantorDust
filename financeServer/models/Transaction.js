@@ -22,7 +22,7 @@ const transactionSchema = new mongoose.Schema({
   voucher_type: {
     type: String,
     enum: ['receipt', 'payment', 'journal', 'contra'],
-    // not required — auto-set by pre-save hook
+    default: null
   },
 
   // ── Party ────────────────────────────────────────────────────
@@ -152,10 +152,12 @@ transactionSchema.pre('save', async function () {
     this.credit = this.gross_amount;
   }
 
-  // auto-set voucher_type based on type
-  // journal and contra will be set manually when added later
-  if (!this.voucher_type) {
-    this.voucher_type = this.type === 'income' ? 'receipt' : 'payment';
+  // always set voucher_type based on type
+  // ignore whatever came from the request — hook decides this
+  if (this.type === 'income') {
+    this.voucher_type = 'receipt';
+  } else {
+    this.voucher_type = 'payment';
   }
 });
 

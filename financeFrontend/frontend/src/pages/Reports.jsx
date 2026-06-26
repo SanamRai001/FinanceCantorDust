@@ -1,17 +1,14 @@
 import { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import API from '../services/api';
 
 const Reports = () => {
-  const [ledger,   setLedger]   = useState([]);
-  const [summary,  setSummary]  = useState({ total_debit: 0, total_credit: 0, closing_balance: 0 });
-  const [parties,  setParties]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [filters,  setFilters]  = useState({
-    from:    '',
-    to:      '',
-    type:    '',
-    party:   '',
-    keyword: '',
+  const [ledger,  setLedger]  = useState([]);
+  const [summary, setSummary] = useState({ total_debit: 0, total_credit: 0, closing_balance: 0 });
+  const [parties, setParties] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    from: '', to: '', type: '', party: '', keyword: ''
   });
 
   const fetchLedger = (params = {}) => {
@@ -27,7 +24,7 @@ const Reports = () => {
 
   useEffect(() => {
     fetchLedger();
-    API.get('/parties').then(res => setParties(res.data.data));
+    API.get('/party').then(res => setParties(res.data.data));
   }, []);
 
   const handleFilter = (e) => {
@@ -36,7 +33,6 @@ const Reports = () => {
 
   const handleSearch = (e) => {
     e.preventDefault();
-    // remove empty filters before sending
     const params = Object.fromEntries(
       Object.entries(filters).filter(([_, v]) => v !== '')
     );
@@ -48,8 +44,9 @@ const Reports = () => {
     fetchLedger();
   };
 
-  const fmt = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
+  const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
 
+  // ── Tally XML export ──────────────────────
   const handleExportTally = async () => {
     try {
       const res = await API.get('/export/tally', { responseType: 'blob' });
@@ -63,6 +60,69 @@ const Reports = () => {
       console.error(err);
       alert('Export failed — ' + (err?.response?.data?.error || err.message));
     }
+  };
+
+  // ── Excel export ──────────────────────────
+  const handleExportExcel = () => {
+    if (ledger.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    // build rows for the sheet
+    const rows = ledger.map(t => ({
+      'Date (BS)':       t.bs_date || new Date(t.date).toLocaleDateString(),
+      'Date (AD)':       new Date(t.date).toLocaleDateString(),
+      'Party':           t.party?.name  || '—',
+      'Description':     t.description  || '—',
+      'Voucher Type':    t.voucher_type || '—',
+      'Payment Method':  t.payment_method || '—',
+      'Bill Reference':  t.bill_ref_number || '—',
+      'Debit (Rs.)':     t.debit  || 0,
+      'Credit (Rs.)':    t.credit || 0,
+      'Balance (Rs.)':   t.running_balance || 0,
+    }));
+
+    // add totals row at the bottom
+    rows.push({
+      'Date (BS)':       '',
+      'Date (AD)':       '',
+      'Party':           '',
+      'Description':     'TOTALS',
+      'Voucher Type':    '',
+      'Payment Method':  '',
+      'Bill Reference':  '',
+      'Debit (Rs.)':     summary.total_debit,
+      'Credit (Rs.)':    summary.total_credit,
+      'Balance (Rs.)':   summary.closing_balance,
+    });
+
+    // create workbook
+    const worksheet  = XLSX.utils.json_to_sheet(rows);
+    const workbook   = XLSX.utils.book_new();
+
+    // set column widths
+    worksheet['!cols'] = [
+      { wch: 14 }, // Date BS
+      { wch: 14 }, // Date AD
+      { wch: 20 }, // Party
+      { wch: 30 }, // Description
+      { wch: 14 }, // Voucher type
+      { wch: 14 }, // Payment method
+      { wch: 16 }, // Bill ref
+      { wch: 14 }, // Debit
+      { wch: 14 }, // Credit
+      { wch: 14 }, // Balance
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Ledger');
+
+    // generate filename with date range if filters applied
+    const from     = filters.from || 'all';
+    const to       = filters.to   || 'time';
+    const filename = `ledger-${from}-to-${to}.xlsx`;
+
+    XLSX.writeFile(workbook, filename);
   };
 
   return (
@@ -102,7 +162,7 @@ const Reports = () => {
         </div>
         <div className="filter-bar__actions">
           <button className="btn btn--primary" type="submit">Search</button>
-          <button className="btn btn--ghost"   type="button" onClick={handleReset}>Reset</button>
+          <button className="btn btn--ghost" type="button" onClick={handleReset}>Reset</button>
         </div>
       </form>
 
@@ -110,15 +170,15 @@ const Reports = () => {
       <div className="summary-grid">
         <div className="card card--income">
           <div className="card__label">Total Debit</div>
-          <div className="card__value">{fmt(summary.total_debit)}</div>
+          <div className="card__value">Rs. {fmt(summary.total_debit)}</div>
         </div>
         <div className="card card--expense">
           <div className="card__label">Total Credit</div>
-          <div className="card__value">{fmt(summary.total_credit)}</div>
+          <div className="card__value">Rs. {fmt(summary.total_credit)}</div>
         </div>
         <div className="card card--profit">
           <div className="card__label">Closing Balance</div>
-          <div className="card__value">{fmt(summary.closing_balance)}</div>
+          <div className="card__value">Rs. {fmt(summary.closing_balance)}</div>
         </div>
       </div>
 
@@ -126,6 +186,9 @@ const Reports = () => {
       <div className="export-bar">
         <button className="btn btn--ghost" onClick={() => window.print()}>
           Print Ledger
+        </button>
+        <button className="btn btn--ghost" onClick={handleExportExcel}>
+          Export to Excel
         </button>
         <button className="btn btn--primary" onClick={handleExportTally}>
           Export to Tally XML
@@ -176,19 +239,18 @@ const Reports = () => {
                     {t.credit ? fmt(t.credit) : '—'}
                   </td>
                   <td className={`text-right bold ${t.running_balance >= 0 ? 'income' : 'expense'}`}>
-                    {fmt(t.running_balance)}
+                    Rs. {fmt(t.running_balance)}
                   </td>
                 </tr>
               ))}
             </tbody>
-            {/* Totals row */}
             {ledger.length > 0 && (
               <tfoot>
                 <tr className="totals-row">
                   <td colSpan={4} className="bold">Totals</td>
-                  <td className="text-right bold income">{fmt(summary.total_debit)}</td>
-                  <td className="text-right bold expense">{fmt(summary.total_credit)}</td>
-                  <td className="text-right bold">{fmt(summary.closing_balance)}</td>
+                  <td className="text-right bold income">Rs. {fmt(summary.total_debit)}</td>
+                  <td className="text-right bold expense">Rs. {fmt(summary.total_credit)}</td>
+                  <td className="text-right bold">Rs. {fmt(summary.closing_balance)}</td>
                 </tr>
               </tfoot>
             )}

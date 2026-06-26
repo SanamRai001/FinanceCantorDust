@@ -171,7 +171,7 @@ const Transactions = () => {
 
             {/* Party */}
             <div className="form-group">
-              <label>Party </label>
+              <label>Party      </label>
               <select name="party" value={form.party}
                 onChange={handleChange} >
                 <option value="">— Select party —</option>

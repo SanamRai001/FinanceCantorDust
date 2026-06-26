@@ -115,17 +115,23 @@ body {
   flex-direction: column;
   z-index: 50;
 }
-
-.sidebar h1 {
-  font-size: 18px;
-  font-weight: 800;
-  color: white;
-  text-align: center;
-  padding: 24px 20px;
+.sidebar__logoWrap {
+  padding: 16px 20px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
-  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
+.sidebarLogo {
+  height: 120px !important;
+  width: auto !important;
+  max-width: none !important;
+  object-fit: contain;
+  display: block;
+  opacity: 0.9;
+}
 .sidebarNav {
   display: flex;
   flex-direction: column;
@@ -688,4 +694,226 @@ td.expense { color: var(--red);   }
 .login-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+/* ══════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════ */
+
+/* ── Tablet — 1024px and below ───────────── */
+@media (max-width: 1024px) {
+
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .chart-filters {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .chart-custom-range {
+    flex-wrap: wrap;
+  }
+
+  .filter-bar {
+    flex-direction: column;
+  }
+
+  .filter-bar .form-group {
+    min-width: 100%;
+  }
+
+  .export-bar {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Mobile — 768px and below ────────────── */
+@media (max-width: 768px) {
+
+  /* sidebar becomes a top bar on mobile */
+  :root {
+    --sidebar-w: 0px;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: relative;
+    flex-direction: row;
+    align-items: center;
+    padding: 0;
+    z-index: 50;
+  }
+
+  .sidebar h1 {
+    padding: 14px 16px;
+    border-bottom: none;
+    border-right: 1px solid rgba(255,255,255,0.1);
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .sidebarNav {
+    flex-direction: row;
+    padding: 0;
+    gap: 0;
+    overflow-x: auto;
+    flex: 1;
+  }
+
+  .sidebar_link {
+    padding: 14px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .sidebar_link--active {
+    border-left: none;
+    border-bottom: 3px solid white;
+  }
+
+  .sidebarLogo {
+    display: none;
+  }
+
+  .app {
+    flex-direction: column;
+  }
+
+  .main {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  /* content padding */
+  .content {
+    padding: 16px;
+  }
+
+  /* topbar */
+  .topbar {
+    padding: 0 16px;
+  }
+
+  .topbar__user {
+    display: none;
+  }
+
+  /* summary cards — stack 2 per row */
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .card__value {
+    font-size: 18px;
+  }
+
+  /* form — single column */
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* type toggle */
+  .type-toggle {
+    flex-direction: row;
+  }
+
+  /* tables — horizontal scroll */
+  .table-card {
+    overflow-x: auto;
+  }
+
+  .table {
+    min-width: 600px;
+  }
+
+  /* reports filter bar */
+  .filter-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-bar .form-group {
+    min-width: 100%;
+  }
+
+  .filter-bar__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* export bar */
+  .export-bar {
+    flex-direction: column;
+  }
+
+  .export-bar .btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* period buttons — scrollable row */
+  .period-btns {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    width: 100%;
+  }
+
+  .period-btn {
+    white-space: nowrap;
+  }
+
+  .chart-custom-range {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .chart-custom-range input {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  /* page header */
+  .page-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* login card */
+  .login-card {
+    margin: 16px;
+    padding: 24px;
+  }
+}
+
+/* ── Small mobile — 480px and below ─────── */
+@media (max-width: 480px) {
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar__role {
+    display: none;
+  }
+
+  .card__value {
+    font-size: 16px;
+  }
+
+  .chart-card {
+    padding: 14px;
+  }
+
+  .form-card {
+    padding: 14px;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
 }
