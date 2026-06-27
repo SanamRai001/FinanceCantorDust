@@ -13,7 +13,8 @@ const Parties = () => {
   const { canEdit, canDelete, isAdmin }   = useAuth();
 
   const [form, setForm] = useState({
-    name: '', type: 'supplier', phone: '', vat_number: '', pan_number: ''
+    name: '', type: 'supplier', phone: '', vat_number: '', pan_number: '',
+    opening_balance: 0, opening_balance_type: 'none'
   });
   const [error, setError] = useState('');
 
@@ -58,7 +59,10 @@ const Parties = () => {
     setError('');
     try {
       await API.post('/party', form);
-      setForm({ name: '', type: 'supplier', phone: '', vat_number: '', pan_number: '' });
+      setForm({
+        name: '', type: 'supplier', phone: '', vat_number: '', pan_number: '',
+        opening_balance: 0, opening_balance_type: 'none'
+      });
       setShowForm(false);
       fetchParties();
     } catch (err) {
@@ -154,6 +158,19 @@ const Parties = () => {
               <label>PAN number</label>
               <input name="pan_number" value={form.pan_number} onChange={handleChange}
                 placeholder="PAN number" />
+            </div>
+            <div className="form-group">
+              <label>Opening Balance</label>
+              <input type="number" name="opening_balance" value={form.opening_balance} onChange={handleChange}
+                placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div className="form-group">
+              <label>Opening Balance Type</label>
+              <select name="opening_balance_type" value={form.opening_balance_type} onChange={handleChange}>
+                <option value="none">None</option>
+                <option value="receivable">Receivable (Client owes us)</option>
+                <option value="payable">Payable (We owe supplier)</option>
+              </select>
             </div>
           </div>
           <button className="btn btn--primary" type="submit">Save Party</button>

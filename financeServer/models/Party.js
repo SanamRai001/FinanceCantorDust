@@ -47,6 +47,15 @@ const partySchema = new mongoose.Schema({
     default: true       // soft delete — never hard delete a party
   },                    // that has transactions linked to it
 
+  opening_balance: {
+    type:    Number,
+    default: 0
+  },
+  opening_balance_type: {
+    type:    String,
+    enum:    ['receivable', 'payable', 'none'],
+    default: 'none'
+  },
   notes: {
     type: String,
     trim: true

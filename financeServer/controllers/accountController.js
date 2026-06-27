@@ -1,5 +1,6 @@
 import Account     from '../models/Account.js';
 import Transaction from '../models/Transaction.js';
+import JournalEntry from '../models/JournalEntry.js';
 
 // ── GET all accounts ──────────────────────
 export const getAccounts = async (req, res) => {
@@ -179,13 +180,18 @@ export const deleteAccount = async (req, res) => {
       account: req.params.id
     });
 
-    if (txnCount > 0) {
+    // check if any journal entries use this account
+    const journalCount = await JournalEntry.countDocuments({
+      'lines.account': req.params.id
+    });
+
+    if (txnCount > 0 || journalCount > 0) {
       // soft delete — keep for historical data
       account.is_active = false;
       await account.save();
       return res.json({
         success:      true,
-        message:      `Account deactivated — ${txnCount} transaction(s) linked`,
+        message:      `Account deactivated — ${txnCount + journalCount} transaction(s)/journal(s) linked`,
         soft_deleted: true
       });
     }
@@ -239,6 +245,14 @@ export const getAccountBalance = async (req, res) => {
 
     const transactions = await Transaction.find(filter).sort({ date: 1 });
 
+    const journalFilter = { 'lines.account': req.params.id };
+    if (req.query.from || req.query.to) {
+      journalFilter.date = {};
+      if (req.query.from) journalFilter.date.$gte = new Date(req.query.from);
+      if (req.query.to)   journalFilter.date.$lte = new Date(req.query.to);
+    }
+    const journalEntries = await JournalEntry.find(journalFilter);
+
     let total_debit  = account.opening_balance_type === 'debit'
                        ? account.opening_balance : 0;
     let total_credit = account.opening_balance_type === 'credit'
@@ -247,6 +261,15 @@ export const getAccountBalance = async (req, res) => {
     transactions.forEach(txn => {
       total_debit  += txn.debit  || 0;
       total_credit += txn.credit || 0;
+    });
+
+    journalEntries.forEach(entry => {
+      entry.lines.forEach(line => {
+        if (line.account && line.account.toString() === req.params.id) {
+          total_debit  += line.debit  || 0;
+          total_credit += line.credit || 0;
+        }
+      });
     });
 
     // balance depends on account type
@@ -266,7 +289,7 @@ export const getAccountBalance = async (req, res) => {
         total_debit,
         total_credit,
         balance,
-        txn_count:     transactions.length
+        txn_count:     transactions.length + journalEntries.length
       }
     });
 

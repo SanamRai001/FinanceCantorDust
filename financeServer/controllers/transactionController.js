@@ -229,7 +229,7 @@ export const updateTransaction = async (req, res) => {
       txn.net_amount  = 0; // hook recalculates from line items
     }
 
-    if (req.file) txn.attachment = req.file.path;
+    if (req.file) txn.attachment = req.file.path.replace(/\\/g, '/');
 
     await txn.save();
     await txn.populate([

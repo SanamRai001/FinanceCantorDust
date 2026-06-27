@@ -61,7 +61,19 @@ export const createJournalEntry = async (req, res) => {
       reference_number, narration, lines
     } = req.body;
 
-    if (!lines || lines.length < 2) {
+    let parsedLines = lines;
+    if (typeof lines === 'string') {
+      try {
+        parsedLines = JSON.parse(lines);
+      } catch (err) {
+        return res.status(400).json({
+          success: false,
+          error:   'Invalid format for lines'
+        });
+      }
+    }
+
+    if (!parsedLines || !Array.isArray(parsedLines) || parsedLines.length < 2) {
       return res.status(400).json({
         success: false,
         error:   'Journal entry must have at least 2 lines'
@@ -69,7 +81,7 @@ export const createJournalEntry = async (req, res) => {
     }
 
     // validate all accounts exist
-    for (const line of lines) {
+    for (const line of parsedLines) {
       if (!line.account) {
         return res.status(400).json({
           success: false,
@@ -91,9 +103,9 @@ export const createJournalEntry = async (req, res) => {
       voucher_type:     voucher_type     || 'journal',
       reference_number: reference_number || null,
       narration,
-      lines,
+      lines:            parsedLines,
       created_by:       req.user._id,
-      attachment:       req.file ? req.file.path : null
+      attachment:       req.file ? req.file.path.replace(/\\/g, '/') : null
     });
 
     await entry.save();

@@ -323,6 +323,10 @@ export const getTrialBalance = async (req, res) => {
     const transactions = await Transaction.find(filter)
       .populate('account', 'code name type group');
 
+    // get all journal entries in period
+    const journalEntries = await JournalEntry.find(filter)
+      .populate('lines.account', 'code name type');
+
     // build account balance map
     const balanceMap = {};
 
@@ -348,6 +352,19 @@ export const getTrialBalance = async (req, res) => {
 
       balanceMap[key].debit  += txn.debit  || 0;
       balanceMap[key].credit += txn.credit || 0;
+    });
+
+    // add journal entry amounts to each account
+    journalEntries.forEach(entry => {
+      entry.lines.forEach(line => {
+        if (!line.account) return;
+
+        const key = line.account._id.toString();
+        if (!balanceMap[key]) return;
+
+        balanceMap[key].debit  += line.debit  || 0;
+        balanceMap[key].credit += line.credit || 0;
+      });
     });
 
     // calculate net balance per account
