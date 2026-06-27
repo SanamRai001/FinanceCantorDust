@@ -14,11 +14,7 @@ import categoryRoutes from './routes/categoryRoutes.js';
 dotenv.config();
 
 const app = express();
-import fs from 'fs';
 
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
-}
 // Connect to MongoDB
 connectDB();
 

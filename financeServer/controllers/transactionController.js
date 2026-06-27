@@ -121,7 +121,9 @@ export const createTransaction = async (req, res) => {
       bill_ref_type, bill_ref_number,
       bs_date, category, discount
     } = req.body;
-
+const attachmentPath = req.file 
+  ? req.file.path.replace(/\\/g, '/') // fix Windows backslashes
+  : null;
     // validate party if provided
     if (party) {
       const partyExists = await Party.findById(party);
@@ -167,8 +169,7 @@ export const createTransaction = async (req, res) => {
       bill_ref_type:   bill_ref_type   || 'none',
       bill_ref_number: bill_ref_number || null,
       bs_date:         bs_date         || null,
-      attachment:      req.file ? req.file.path : null,
-      // voucher_type — hook sets this
+attachment: attachmentPath      // voucher_type — hook sets this
     });
 
     await txn.save();

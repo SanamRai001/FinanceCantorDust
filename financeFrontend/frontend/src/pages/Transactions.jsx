@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import API from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { formatBS, bsToAD } from '../utils/bsDateConverter';
+import getFileUrl from '../utils/getFileUrl';
 
 const emptyForm = {
   date:            '',
@@ -458,6 +459,7 @@ const Transactions = () => {
               <th>Payment</th>
               <th>Items</th>
               <th className="text-right">Amount</th>
+              <th>Attachment</th>
             </tr>
           </thead>
           <tbody>
@@ -494,6 +496,18 @@ const Transactions = () => {
                 </td>
                 <td className={`text-right bold ${t.type}`}>
                   {fmt(t.gross_amount)}
+                </td>
+                <td>
+                  {t.attachment ? (
+                    <a
+                      href={getFileUrl(t.attachment)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="attachment-link"
+                    >
+                      View
+                    </a>
+                  ) : '—'}
                 </td>
               </tr>
             ))}

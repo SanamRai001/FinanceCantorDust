@@ -2,21 +2,15 @@ import express from 'express';
 import {
   getLedger,
   getProfitLoss,
-  getVATSummary
+  getVATSummary,
+  getCategoryReport   // ADD
 } from '../controllers/reportController.js';
 
 const router = express.Router();
 
-// GET /api/reports/ledger    ← ledger with running balance
-//     supports: ?from= &to= &type= &party= &keyword= &payment_method=
-router.get('/ledger', getLedger);
-
-// GET /api/reports/pl        ← profit and loss
-//     supports: ?from= &to=
-router.get('/pl', getProfitLoss);
-
-// GET /api/reports/vat       ← VAT summary
-//     supports: ?from= &to=
-router.get('/vat', getVATSummary);
+router.get('/ledger',   getLedger);
+router.get('/pl',       getProfitLoss);
+router.get('/vat',      getVATSummary);
+router.get('/category', getCategoryReport);  // ADD
 
 export default router;

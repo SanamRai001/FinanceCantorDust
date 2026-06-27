@@ -28,7 +28,7 @@ const Login = () => {
     <div className="login-page">
       <div className="login-card">
         <div className="login-card__header">
-          <h1 className="login-card__title">Nepal Fin-Pro</h1>
+          <h1 className="login-card__title">Cantor Dust</h1>
           <p className="login-card__sub">Sign in to your account</p>
         </div>
         {error && <div className="form-error">{error}</div>}
@@ -36,7 +36,7 @@ const Login = () => {
           <div className="form-group">
             <label>Email</label>
             <input type="email" name="email" value={form.email}
-              onChange={handleChange} placeholder="admin@finapp.com" required />
+              onChange={handleChange} placeholder="example@example.com" required />
           </div>
           <div className="form-group">
             <label>Password</label>

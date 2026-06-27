@@ -12,14 +12,11 @@ import protect from '../middleware/auth.js';
 import allow   from '../middleware/role.js';
 
 // ── Multer config ─────────────────────────────────────────────
-// controls how uploaded files are stored
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'uploads/');  // files saved to uploads/ folder
   },
   filename: (req, file, cb) => {
-    // gives each file a unique name so files never overwrite each other
-    // e.g. bill-1234567890-123456789.pdf
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     cb(null, `bill-${unique}${path.extname(file.originalname)}`);
   }
@@ -39,7 +36,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }  // 5MB max
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB max still enforced
 });
 
 // ── Routes ────────────────────────────────────────────────────

@@ -2,7 +2,6 @@ import Transaction from '../models/Transaction.js';
 import Party from '../models/Party.js';
 
 // ── helper: build date filter ─────────────────────────────────
-// reused across all three report functions
 const buildDateFilter = (from, to) => {
   const filter = {};
   if (from || to) {
@@ -15,22 +14,15 @@ const buildDateFilter = (from, to) => {
 
 // ═══════════════════════════════════════════════════════════════
 // LEDGER
-// Module 1 — Accounting and Bookkeeping
-// GET /api/reports/ledger
-// query params: from, to, type, party, keyword
 // ═══════════════════════════════════════════════════════════════
 export const getLedger = async (req, res) => {
   try {
     const filter = buildDateFilter(req.query.from, req.query.to);
 
-    // optional filters
-    if (req.query.type)    filter.type = req.query.type;
+    if (req.query.type)           filter.type           = req.query.type;
     if (req.query.payment_method) filter.payment_method = req.query.payment_method;
-// ADD in getLedger — after payment_method filter
-if (req.query.category) {
-  filter.category = req.query.category;
-}
-    // party filter — accepts ObjectId or name string
+    if (req.query.category)       filter.category       = req.query.category;
+
     if (req.query.party) {
       const isObjectId = req.query.party.match(/^[0-9a-fA-F]{24}$/);
       if (isObjectId) {
@@ -48,41 +40,33 @@ if (req.query.category) {
       }
     }
 
-    // keyword search on description
     if (req.query.keyword) {
       filter.description = { $regex: req.query.keyword, $options: 'i' };
     }
 
-const transactions = await Transaction.find(filter)
-  .populate('party',    'name type vat_number pan_number')
-  .populate('category', 'name color type group')  // ADD this
-  .sort({ date: 1 });
+    const transactions = await Transaction.find(filter)
+      .populate('party',    'name type vat_number pan_number')
+      .populate('category', 'name color type group')
+      .sort({ date: 1 });
 
-    // calculate running balance row by row
     let balance      = 0;
     let total_debit  = 0;
     let total_credit = 0;
 
     const rows = transactions.map(txn => {
-      const doc       = txn.toObject();
-      total_debit    += txn.debit;
-      total_credit   += txn.credit;
-      balance        += txn.type === 'income'
-                          ? txn.gross_amount
-                          : -txn.gross_amount;
+      const doc    = txn.toObject();
+      total_debit  += txn.debit;
+      total_credit += txn.credit;
+      balance      += txn.type === 'income' ? txn.gross_amount : -txn.gross_amount;
       doc.running_balance = balance;
       return doc;
     });
 
     res.json({
       success: true,
-      count: rows.length,
-      summary: {
-        total_debit,
-        total_credit,
-        closing_balance: balance  // positive = money in hand, negative = deficit
-      },
-      data: rows
+      count:   rows.length,
+      summary: { total_debit, total_credit, closing_balance: balance },
+      data:    rows
     });
 
   } catch (err) {
@@ -92,9 +76,6 @@ const transactions = await Transaction.find(filter)
 
 // ═══════════════════════════════════════════════════════════════
 // PROFIT AND LOSS
-// Module 2 — Financial Reporting
-// GET /api/reports/pl
-// query params: from, to
 // ═══════════════════════════════════════════════════════════════
 export const getProfitLoss = async (req, res) => {
   try {
@@ -104,29 +85,20 @@ export const getProfitLoss = async (req, res) => {
       .populate('party', 'name type')
       .sort({ date: 1 });
 
-    // split into income and expense
     const incomeList  = transactions.filter(t => t.type === 'income');
     const expenseList = transactions.filter(t => t.type === 'expense');
 
-    // total income and expense
     const total_income  = incomeList .reduce((sum, t) => sum + t.gross_amount, 0);
     const total_expense = expenseList.reduce((sum, t) => sum + t.gross_amount, 0);
     const net_profit    = total_income - total_expense;
 
-    // monthly breakdown — useful for charts on the frontend
-    // groups transactions by year-month e.g. "2081-04"
     const monthlyMap = {};
-
     transactions.forEach(txn => {
-      const d     = new Date(txn.date);
-      const key   = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
-      if (!monthlyMap[key]) {
-        monthlyMap[key] = { month: key, income: 0, expense: 0, net: 0 };
-      }
-
-      if (txn.type === 'income')  monthlyMap[key].income  += txn.gross_amount;
-      else                        monthlyMap[key].expense += txn.gross_amount;
+      const d   = new Date(txn.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyMap[key]) monthlyMap[key] = { month: key, income: 0, expense: 0, net: 0 };
+      if (txn.type === 'income') monthlyMap[key].income  += txn.gross_amount;
+      else                       monthlyMap[key].expense += txn.gross_amount;
       monthlyMap[key].net = monthlyMap[key].income - monthlyMap[key].expense;
     });
 
@@ -134,15 +106,13 @@ export const getProfitLoss = async (req, res) => {
       a.month.localeCompare(b.month)
     );
 
-    // income breakdown by party — who paid you the most
-    const incomeByParty = {};
+    const incomeByParty  = {};
+    const expenseByParty = {};
+
     incomeList.forEach(txn => {
       const name = txn.party?.name || 'Unknown';
       incomeByParty[name] = (incomeByParty[name] || 0) + txn.gross_amount;
     });
-
-    // expense breakdown by party — who you paid the most
-    const expenseByParty = {};
     expenseList.forEach(txn => {
       const name = txn.party?.name || 'Unknown';
       expenseByParty[name] = (expenseByParty[name] || 0) + txn.gross_amount;
@@ -150,16 +120,8 @@ export const getProfitLoss = async (req, res) => {
 
     res.json({
       success: true,
-      period: {
-        from: req.query.from || 'all time',
-        to:   req.query.to   || 'all time'
-      },
-      summary: {
-        total_income,
-        total_expense,
-        net_profit,
-        is_profit: net_profit >= 0  // false means it is a loss
-      },
+      period:  { from: req.query.from || 'all time', to: req.query.to || 'all time' },
+      summary: { total_income, total_expense, net_profit, is_profit: net_profit >= 0 },
       monthly_breakdown,
       income_by_party:  incomeByParty,
       expense_by_party: expenseByParty,
@@ -174,39 +136,26 @@ export const getProfitLoss = async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════
 // VAT SUMMARY
-// Module 3 — Taxation and Compliance
-// GET /api/reports/vat
-// query params: from, to
 // ═══════════════════════════════════════════════════════════════
 export const getVATSummary = async (req, res) => {
   try {
     const filter = {
       ...buildDateFilter(req.query.from, req.query.to),
-      vat_applicable: true   // only transactions where VAT was charged
+      vat_applicable: true
     };
 
     const transactions = await Transaction.find(filter)
       .populate('party', 'name vat_number pan_number type')
       .sort({ date: 1 });
 
-    // input VAT — VAT paid on purchases (expense transactions)
-    // this is what you can claim back from IRD
-    const inputVATList = transactions.filter(t => t.type === 'expense');
-
-    // output VAT — VAT collected from clients (income transactions)
-    // this is what you owe to IRD
+    const inputVATList  = transactions.filter(t => t.type === 'expense');
     const outputVATList = transactions.filter(t => t.type === 'income');
 
     const total_input_vat  = inputVATList .reduce((sum, t) => sum + t.vat_amount, 0);
     const total_output_vat = outputVATList.reduce((sum, t) => sum + t.vat_amount, 0);
+    const net_vat_payable  = total_output_vat - total_input_vat;
 
-    // net VAT payable to IRD
-    // positive = you owe IRD this amount
-    // negative = IRD owes you a refund
-    const net_vat_payable = total_output_vat - total_input_vat;
-
-    // format input VAT rows for the report table
-    const input_vat_rows = inputVATList.map(t => ({
+    const formatRow = (t) => ({
       date:           t.date,
       bs_date:        t.bs_date,
       party:          t.party?.name,
@@ -218,45 +167,135 @@ export const getVATSummary = async (req, res) => {
       vat_amount:     t.vat_amount,
       gross_amount:   t.gross_amount,
       payment_method: t.payment_method
-    }));
-
-    // format output VAT rows for the report table
-    const output_vat_rows = outputVATList.map(t => ({
-      date:           t.date,
-      bs_date:        t.bs_date,
-      party:          t.party?.name,
-      voucher_type:   t.voucher_type,
-      vat_number:     t.party?.vat_number,
-      description:    t.description,
-      bill_ref:       t.bill_ref_number,
-      net_amount:     t.net_amount,
-      vat_amount:     t.vat_amount,
-      gross_amount:   t.gross_amount,
-      payment_method: t.payment_method
-    }));
+    });
 
     res.json({
       success: true,
-      period: {
+      period:  { from: req.query.from || 'all time', to: req.query.to || 'all time' },
+      summary: { total_input_vat, total_output_vat, net_vat_payable, is_refund: net_vat_payable < 0 },
+      input_vat:  { count: inputVATList.length,  total: total_input_vat,  rows: inputVATList.map(formatRow)  },
+      output_vat: { count: outputVATList.length, total: total_output_vat, rows: outputVATList.map(formatRow) }
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CATEGORY REPORT
+// Module 2 — Financial Reporting
+// GET /api/reports/category
+// query params: from, to, type, party, keyword
+// returns transactions grouped by category
+// totals visible to admin only — enforced on frontend
+// ═══════════════════════════════════════════════════════════════
+export const getCategoryReport = async (req, res) => {
+  try {
+    const filter = buildDateFilter(req.query.from, req.query.to);
+
+    // optional filters — same as ledger
+    if (req.query.type)    filter.type    = req.query.type;
+    if (req.query.keyword) {
+      filter.description = { $regex: req.query.keyword, $options: 'i' };
+    }
+
+    // party filter
+    if (req.query.party) {
+      const isObjectId = req.query.party.match(/^[0-9a-fA-F]{24}$/);
+      if (isObjectId) {
+        filter.party = req.query.party;
+      } else {
+        const party = await Party.findOne({
+          name: { $regex: req.query.party, $options: 'i' }
+        });
+        if (party) filter.party = party._id;
+        else return res.json({ success: true, data: [] });
+      }
+    }
+
+    const transactions = await Transaction.find(filter)
+      .populate('party',    'name type vat_number')
+      .populate('category', 'name color type group')
+      .sort({ date: 1 });
+
+    // ── group transactions by category ────────
+    const categoryMap = {};
+
+    transactions.forEach(txn => {
+      // use category id as key — null goes to Miscellaneous
+      const catId    = txn.category?._id?.toString() || 'miscellaneous';
+      const catName  = txn.category?.name  || 'Miscellaneous';
+      const catColor = txn.category?.color || '#6B7280';
+      const catGroup = txn.category?.group || 'general';
+      const catType  = txn.category?.type  || 'both';
+
+      if (!categoryMap[catId]) {
+        categoryMap[catId] = {
+          category_id:    catId,
+          category_name:  catName,
+          category_color: catColor,
+          category_group: catGroup,
+          category_type:  catType,
+          transactions:   [],
+          total_income:   0,
+          total_expense:  0,
+          net:            0,
+          count:          0
+        };
+      }
+
+      // add transaction to this category group
+      categoryMap[catId].transactions.push({
+        _id:            txn._id,
+        date:           txn.date,
+        bs_date:        txn.bs_date,
+        type:           txn.type,
+        party:          txn.party?.name || '—',
+        description:    txn.description || '—',
+        payment_method: txn.payment_method,
+        gross_amount:   txn.gross_amount,
+        debit:          txn.debit,
+        credit:         txn.credit,
+        voucher_type:   txn.voucher_type,
+        attachment:     txn.attachment || null,
+      });
+
+      // accumulate totals
+      if (txn.type === 'income') {
+        categoryMap[catId].total_income += txn.gross_amount;
+      } else {
+        categoryMap[catId].total_expense += txn.gross_amount;
+      }
+      categoryMap[catId].net   = categoryMap[catId].total_income - categoryMap[catId].total_expense;
+      categoryMap[catId].count += 1;
+    });
+
+    // ── sort — named categories first, Miscellaneous last ────
+    const groups = Object.values(categoryMap).sort((a, b) => {
+      if (a.category_id === 'miscellaneous') return 1;
+      if (b.category_id === 'miscellaneous') return -1;
+      return a.category_name.localeCompare(b.category_name);
+    });
+
+    // ── overall summary ───────────────────────
+    const overall = groups.reduce((acc, g) => {
+      acc.total_income  += g.total_income;
+      acc.total_expense += g.total_expense;
+      return acc;
+    }, { total_income: 0, total_expense: 0 });
+
+    overall.net_profit = overall.total_income - overall.total_expense;
+
+    res.json({
+      success: true,
+      count:   transactions.length,
+      period:  {
         from: req.query.from || 'all time',
         to:   req.query.to   || 'all time'
       },
-      summary: {
-        total_input_vat,    // VAT you can claim from IRD
-        total_output_vat,   // VAT you owe to IRD
-        net_vat_payable,    // final amount — positive = pay, negative = refund
-        is_refund: net_vat_payable < 0
-      },
-      input_vat: {
-        count: inputVATList.length,
-        total: total_input_vat,
-        rows:  input_vat_rows
-      },
-      output_vat: {
-        count: outputVATList.length,
-        total: total_output_vat,
-        rows:  output_vat_rows
-      }
+      overall, // admin only — enforced on frontend
+      data:    groups
     });
 
   } catch (err) {
