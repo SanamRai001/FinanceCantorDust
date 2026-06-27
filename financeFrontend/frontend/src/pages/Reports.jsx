@@ -359,47 +359,46 @@ useEffect(() => {
       </td>
     </tr>
 
-    {/* Line items expansion row */}
+    {/* Line items expansion rows */}
+    {expandedRows[t._id] && t.line_items?.length > 0 && t.line_items.map((item, i) => (
+      <tr key={`${t._id}-item-${i}`} className="line-item-subrow">
+        <td></td>
+        <td></td>
+        <td></td>
+        <td style={{ paddingLeft: 40 }} className="muted">↳ {item.name}</td>
+        <td></td>
+        {isAdmin && <td className="text-right muted">{item.quantity}</td>}
+        {isAdmin && <td className="text-right muted">Rs. {fmt(item.unit_price)}</td>}
+        {isAdmin && <td className="text-right bold">Rs. {fmt(item.total)}</td>}
+        <td></td>
+      </tr>
+    ))}
+    {/* Discount subrow */}
+    {expandedRows[t._id] && t.line_items?.length > 0 && t.discount > 0 && (
+      <tr key={`${t._id}-discount`} className="line-item-subrow">
+        <td></td>
+        <td></td>
+        <td></td>
+        <td style={{ paddingLeft: 40 }} className="muted">↳ Discount</td>
+        <td></td>
+        {isAdmin && <td></td>}
+        {isAdmin && <td></td>}
+        {isAdmin && <td className="text-right expense">− Rs. {fmt(t.discount)}</td>}
+        <td></td>
+      </tr>
+    )}
+    {/* Net Amount subrow */}
     {expandedRows[t._id] && t.line_items?.length > 0 && (
-      <tr key={`${t._id}-items`} className="line-items-row">
-<td colSpan={isAdmin ? 9 : 6} style={{ padding: 0, border: 'none' }}>
-            <div className="line-items-expand">
-            <table className="table line-items-inner">
-              <thead>
-                <tr>
-                  <th style={{ paddingLeft: 40 }}>Item name</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Unit price</th>
-                  <th className="text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {t.line_items.map((item, i) => (
-                  <tr key={i}>
-                    <td style={{ paddingLeft: 40 }}>{item.name}</td>
-                    <td className="text-right muted">{item.quantity}</td>
-                    <td className="text-right muted">Rs. {fmt(item.unit_price)}</td>
-                    <td className="text-right bold">Rs. {fmt(item.total)}</td>
-                  </tr>
-                ))}
-                {t.discount > 0 && (
-                  <tr>
-                    <td style={{ paddingLeft: 40 }} className="muted">Discount</td>
-                    <td></td>
-                    <td></td>
-                    <td className="text-right expense">− Rs. {fmt(t.discount)}</td>
-                  </tr>
-                )}
-                <tr style={{ borderTop: '1px solid var(--border)' }}>
-                  <td style={{ paddingLeft: 40 }} className="bold">Net Amount</td>
-                  <td></td>
-                  <td></td>
-                  <td className="text-right bold">Rs. {fmt(t.net_amount)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </td>
+      <tr key={`${t._id}-net`} className="line-item-subrow line-item-subrow--total">
+        <td></td>
+        <td></td>
+        <td></td>
+        <td style={{ paddingLeft: 40 }} className="bold">↳ Net Amount</td>
+        <td></td>
+        {isAdmin && <td></td>}
+        {isAdmin && <td></td>}
+        {isAdmin && <td className="text-right bold">Rs. {fmt(t.net_amount)}</td>}
+        <td></td>
       </tr>
     )}
   </>

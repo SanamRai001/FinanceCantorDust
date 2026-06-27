@@ -114,68 +114,61 @@ body {
 .sidebar {
   width: var(--sidebar-w);
   background: var(--navy);
+  height: 100vh;
   position: fixed;
   top: 0;
   left: 0;
-  height: 100vh;
   display: flex;
   flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.1);
   z-index: 50;
 }
+
 .sidebar__logoWrap {
-  padding: 16px 20px;
+  padding: 24px 20px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
 }
 
 .sidebarLogo {
-  height: 120px !important;
+  height: 48px !important;
   width: auto !important;
-  max-width: none !important;
   object-fit: contain;
   display: block;
-  opacity: 0.9;
+  opacity: 0.95;
+  margin: 0 auto;
 }
+
 .sidebarNav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  padding: 12px 0;
+  padding: 16px 0;
+  gap: 4px;
 }
 
 .sidebar_link {
   display: flex;
   align-items: center;
-  padding: 11px 20px;
+  padding: 12px 24px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255,255,255,0.70);
+  color: rgba(255,255,255,0.75);
   text-decoration: none;
   transition: all 0.15s;
+  border-left: 3px solid transparent;
 }
 
 .sidebar_link:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.06);
   color: white;
 }
 
 .sidebar_link--active {
-  background: var(--blue);
+  background: rgba(255,255,255,0.1);
   color: white;
-  border-left: 3px solid white;
-}
-
-.sidebarLogo {
-  height: 60px;
-  width: auto;
-  object-fit: contain;
-  display: block;
-  margin: 0 auto 24px;
-  opacity: 0.85;
+  border-left: 3px solid var(--blue);
 }
 
 /* ── Dashboard ──────────────────────────── */
@@ -749,53 +742,20 @@ td.expense { color: var(--red);   }
   cursor: pointer;
 }
 
-.line-items-row td {
-  padding: 0 !important;
+.line-item-subrow td {
+  background: #FAF9F6 !important;
+  font-size: 12px;
+  padding: 8px 16px !important;
   border-bottom: none !important;
   border-top: none !important;
-}
-
-.line-items-expand {
-  background: var(--bg);
-  border-top: 1px dashed var(--border);
-  border-bottom: 2px solid var(--border);
-  padding: 0 0 8px 0;
-}
-
-.line-items-inner {
-  width: 100%;
-  margin: 0;
-  border-collapse: collapse;
-}
-
-.line-items-inner th {
-  background: var(--bg);
-  font-size: 10px;
-  padding: 6px 16px;
-  text-align: left;
   color: var(--text-muted);
+}
+
+.line-item-subrow--total td {
+  border-top: 1px dashed var(--border) !important;
+  border-bottom: 2px solid var(--border) !important;
+  color: var(--text) !important;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.line-items-inner td {
-  font-size: 12px;
-  padding: 7px 16px;
-  border-bottom: none;
-  color: var(--text);
-}
-
-/* align inner table columns to match parent */
-.line-items-inner th:first-child,
-.line-items-inner td:first-child {
-  padding-left: 40px;  /* indent to show it is a sub-table */
-}
-
-.line-items-inner th:last-child,
-.line-items-inner td:last-child {
-  text-align: right;
-  padding-right: 16px;
 }
 /* ── Attachment link ─────────────────────── */
 .attachment-link {
@@ -1130,43 +1090,58 @@ td.expense { color: var(--red);   }
 
   .sidebar {
     width: 100%;
-    height: auto;
-    position: relative;
+    height: 52px;
+    position: sticky;
+    top: 0;
+    left: 0;
     flex-direction: row;
     align-items: center;
     padding: 0;
     z-index: 50;
   }
 
-  .sidebar h1 {
-    padding: 14px 16px;
+  .sidebar__logoWrap {
+    padding: 8px 16px;
     border-bottom: none;
     border-right: 1px solid rgba(255,255,255,0.1);
-    font-size: 14px;
-    white-space: nowrap;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .sidebarLogo {
+    height: 28px !important;
+    width: auto !important;
+    margin: 0 !important;
+    display: block !important;
+    opacity: 0.95;
   }
 
   .sidebarNav {
+    display: flex;
     flex-direction: row;
     padding: 0;
     gap: 0;
     overflow-x: auto;
     flex: 1;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .sidebarNav::-webkit-scrollbar {
+    display: none;
   }
 
   .sidebar_link {
-    padding: 14px 12px;
-    font-size: 12px;
+    padding: 16px 14px;
+    font-size: 13px;
     white-space: nowrap;
+    border-left: none;
   }
 
   .sidebar_link--active {
     border-left: none;
     border-bottom: 3px solid white;
-  }
-
-  .sidebarLogo {
-    display: none;
   }
 
   .app {
