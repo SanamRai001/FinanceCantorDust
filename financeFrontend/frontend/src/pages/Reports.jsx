@@ -12,7 +12,17 @@ const [vat, setVat] = useState(null);
   const [ledger,      setLedger]     = useState([]);
   const [summary,     setSummary]    = useState({ total_debit: 0, total_credit: 0, closing_balance: 0 });
 const [expandedRows, setExpandedRows] = useState({});
+const [trialBalance, setTrialBalance] = useState(null);
+const [balanceSheet, setBalanceSheet] = useState(null);
+const [aging,     setAging]     = useState(null);
+const [agingType, setAgingType] = useState('receivable');
+const [agingAsOf, setAgingAsOf] = useState('');
+const [agingExpanded, setAgingExpanded] = useState({});
 
+const toggleAging = (id) => {
+  setAgingExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+};
+const [asOf, setAsOf] = useState('');
 const toggleRow = (id) => {
   setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
 };
@@ -38,14 +48,43 @@ const toggleRow = (id) => {
     .catch(err => console.error(err))
     .finally(() => setLoading(false));
 };
+const fetchTrialBalance = (params = {}) => {
+  setLoading(true);
+  API.get('/reports/trial-balance', { params })
+    .then(res => setTrialBalance(res.data))
+    .catch(err => console.error(err))
+    .finally(() => setLoading(false));
+};
+const fetchBalanceSheet = (params = {}) => {
+  setLoading(true);
+  API.get('/reports/balance-sheet', { params })
+    .then(res => setBalanceSheet(res.data))
+    .catch(err => console.error(err))
+    .finally(() => setLoading(false));
+};
+const fetchAging = (params = {}) => {
+  setLoading(true);
+  API.get('/reports/aging', { params })
+    .then(res => {
+      setAging(res.data);
+      const exp = {};
+      res.data.data.forEach(p => { exp[p.party_id] = false; });
+      setAgingExpanded(exp);
+    })
+    .catch(err => console.error(err))
+    .finally(() => setLoading(false));
+};
 useEffect(() => {
   const params = Object.fromEntries(
     Object.entries(filters).filter(([_, v]) => v !== '')
   );
-  if (activeTab === 'ledger')   fetchLedger(params);
-  if (activeTab === 'pl')       fetchPL(params);
-  if (activeTab === 'category') fetchCategoryReport(params);
-  if (activeTab === 'vat')      fetchVAT(params);   // ADD
+  if (activeTab === 'ledger')         fetchLedger(params);
+  if (activeTab === 'pl')             fetchPL(params);
+  if (activeTab === 'category')       fetchCategoryReport(params);
+  if (activeTab === 'vat')            fetchVAT(params);
+  if (activeTab === 'trial-balance')  fetchTrialBalance(params);
+  if (activeTab === 'balance-sheet')  fetchBalanceSheet(asOf ? { as_of: asOf } : {});
+  if (activeTab === 'aging')          fetchAging({ type: agingType, ...(agingAsOf ? { as_of: agingAsOf } : {}) });
 }, [activeTab]);
 
   // ── fetch functions ───────────────────────
@@ -107,6 +146,9 @@ useEffect(() => {
     if (activeTab === 'pl')       fetchPL(params);
     if (activeTab === 'category') fetchCategoryReport(params);
     if (activeTab === 'vat') fetchVAT(params);
+    if (activeTab === 'trial-balance') fetchTrialBalance(params);
+if (activeTab === 'balance-sheet') fetchBalanceSheet(asOf ? { as_of: asOf } : {});
+if (activeTab === 'aging') fetchAging({ type: agingType, ...(agingAsOf ? { as_of: agingAsOf } : {}) });
   };
 
   const handleReset = () => {
@@ -115,6 +157,10 @@ useEffect(() => {
     if (activeTab === 'pl')       fetchPL();
     if (activeTab === 'category') fetchCategoryReport();
     if (activeTab === 'vat') fetchVAT();
+    if (activeTab === 'trial-balance') fetchTrialBalance();
+    if (activeTab === 'balance-sheet') { setAsOf(''); fetchBalanceSheet();
+      if (activeTab === 'aging') { setAgingAsOf(''); fetchAging({ type: agingType }); }
+     }
   };
 
   const toggleExpand = (id) => {
@@ -262,6 +308,18 @@ useEffect(() => {
           <button className={`report-tab ${activeTab === 'vat' ? 'report-tab--active' : ''}`}
   onClick={() => setActiveTab('vat')}>
   VAT Summary
+</button>
+<button className={`report-tab ${activeTab === 'trial-balance' ? 'report-tab--active' : ''}`}
+  onClick={() => setActiveTab('trial-balance')}>
+  Trial Balance
+</button>
+<button className={`report-tab ${activeTab === 'balance-sheet' ? 'report-tab--active' : ''}`}
+  onClick={() => setActiveTab('balance-sheet')}>
+  Balance Sheet
+</button>
+<button className={`report-tab ${activeTab === 'aging' ? 'report-tab--active' : ''}`}
+  onClick={() => setActiveTab('aging')}>
+  Aging Report
 </button>
       </div>
 
@@ -795,6 +853,566 @@ useEffect(() => {
         {!isAdmin && (
           <div className="role-notice">
             <span>VAT amounts are visible to admins only.</span>
+          </div>
+        )}
+      </>
+    )}
+  </>
+)}
+{/* ══ TRIAL BALANCE TAB ══ */}
+{activeTab === 'trial-balance' && (
+  <>
+    {loading ? <div className="table__empty">Loading...</div> :
+    !trialBalance ? (
+      <div className="table-card">
+        <div className="table__empty">No data found — set up chart of accounts first</div>
+      </div>
+    ) : (
+      <>
+        {/* Balance status — admin only */}
+        {isAdmin && (
+          <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="card card--income">
+              <div className="card__label">Total Debit</div>
+              <div className="card__value">Rs. {fmt(trialBalance.summary.total_debit)}</div>
+            </div>
+            <div className="card card--expense">
+              <div className="card__label">Total Credit</div>
+              <div className="card__value">Rs. {fmt(trialBalance.summary.total_credit)}</div>
+            </div>
+            <div className={`card ${trialBalance.summary.is_balanced ? 'card--profit' : 'card--expense'}`}>
+              <div className="card__label">Status</div>
+              <div className="card__value" style={{
+                fontSize: 16,
+                color: trialBalance.summary.is_balanced ? 'var(--green)' : 'var(--red)'
+              }}>
+                {trialBalance.summary.is_balanced ? '✓ Balanced' : '✗ Not balanced'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Export — admin only */}
+        {isAdmin && (
+          <div className="export-bar">
+            <button className="btn btn--ghost" onClick={() => {
+              if (!trialBalance) return;
+              const rows = trialBalance.data.map(r => ({
+                'Code':          r.code,
+                'Account':       r.name,
+                'Type':          r.type,
+                'Debit (Rs.)':   r.debit,
+                'Credit (Rs.)':  r.credit,
+                'Balance (Rs.)': r.net_balance,
+              }));
+              rows.push({
+                'Code': '', 'Account': 'TOTALS', 'Type': '',
+                'Debit (Rs.)':   trialBalance.summary.total_debit,
+                'Credit (Rs.)':  trialBalance.summary.total_credit,
+                'Balance (Rs.)': '',
+              });
+              const ws = XLSX.utils.json_to_sheet(rows);
+              const wb = XLSX.utils.book_new();
+              ws['!cols'] = [{ wch: 8 }, { wch: 24 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+              XLSX.utils.book_append_sheet(wb, ws, 'Trial Balance');
+              XLSX.writeFile(wb, `trial-balance-${filters.from || 'all'}-to-${filters.to || 'time'}.xlsx`);
+            }}>
+              Export to Excel
+            </button>
+          </div>
+        )}
+
+        {/* Trial balance table grouped by account type */}
+        {['asset', 'liability', 'equity', 'income', 'expense'].map(type => {
+          const rows = trialBalance.grouped[type] || [];
+          if (rows.length === 0) return null;
+          return (
+            <div key={type} className="table-card">
+              <div className="table-card__header">
+                <h4 className="table-card__title">
+                  {type.charAt(0).toUpperCase() + type.slice(1)}s
+                </h4>
+              </div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Account Name</th>
+                    {isAdmin && <th className="text-right">Debit (Rs.)</th>}
+                    {isAdmin && <th className="text-right">Credit (Rs.)</th>}
+                    {isAdmin && <th className="text-right">Balance (Rs.)</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.account_id}>
+                      <td className="mono muted">{r.code}</td>
+                      <td className="bold">{r.name}</td>
+                      {isAdmin && (
+                        <td className="text-right income">
+                          {r.debit > 0 ? `Rs. ${fmt(r.debit)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="text-right expense">
+                          {r.credit > 0 ? `Rs. ${fmt(r.credit)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className={`text-right bold ${r.net_balance >= 0 ? 'income' : 'expense'}`}>
+                          Rs. {fmt(Math.abs(r.net_balance))}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+
+        {!isAdmin && (
+          <div className="role-notice">
+            <span>Trial balance figures are visible to admins only.</span>
+          </div>
+        )}
+      </>
+    )}
+  </>
+)}
+{/* ══ BALANCE SHEET TAB ══ */}
+{activeTab === 'balance-sheet' && (
+  <>
+    {/* As of date filter — balance sheet is a snapshot not a period */}
+    <div className="filter-bar" style={{ marginBottom: 0 }}>
+      <div className="form-group">
+        <label>As of Date</label>
+        <input type="date" value={asOf}
+          onChange={e => setAsOf(e.target.value)} />
+      </div>
+      <div className="filter-bar__actions">
+        <button className="btn btn--primary"
+          onClick={() => fetchBalanceSheet(asOf ? { as_of: asOf } : {})}>
+          Generate
+        </button>
+        <button className="btn btn--ghost"
+          onClick={() => { setAsOf(''); fetchBalanceSheet(); }}>
+          Today
+        </button>
+      </div>
+    </div>
+
+    {loading ? <div className="table__empty">Loading...</div> :
+    !balanceSheet ? (
+      <div className="table-card">
+        <div className="table__empty">No data — set up chart of accounts and opening balances first</div>
+      </div>
+    ) : (
+      <>
+        {/* Balance status — admin only */}
+        {isAdmin && (
+          <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="card card--income">
+              <div className="card__label">Total Assets</div>
+              <div className="card__value">Rs. {fmt(balanceSheet.summary.total_assets)}</div>
+            </div>
+            <div className="card card--expense">
+              <div className="card__label">Total Liabilities + Equity</div>
+              <div className="card__value">
+                Rs. {fmt(balanceSheet.summary.total_liabilities + balanceSheet.summary.total_equity)}
+              </div>
+            </div>
+            <div className={`card ${balanceSheet.summary.is_balanced ? 'card--profit' : 'card--expense'}`}>
+              <div className="card__label">Status</div>
+              <div className="card__value" style={{
+                fontSize: 16,
+                color: balanceSheet.summary.is_balanced ? 'var(--green)' : 'var(--red)'
+              }}>
+                {balanceSheet.summary.is_balanced ? '✓ Balanced' : '✗ Not balanced'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Export — admin only */}
+        {isAdmin && (
+          <div className="export-bar">
+            <button className="btn btn--ghost" onClick={() => {
+              if (!balanceSheet) return;
+              const wb   = XLSX.utils.book_new();
+
+              // assets sheet
+              const assetRows = balanceSheet.assets.map(a => ({
+                'Code': a.code, 'Account': a.name,
+                'Balance (Rs.)': a.balance
+              }));
+              assetRows.push({ 'Code': '', 'Account': 'TOTAL ASSETS',
+                'Balance (Rs.)': balanceSheet.summary.total_assets });
+              const assetSheet = XLSX.utils.json_to_sheet(assetRows);
+              assetSheet['!cols'] = [{ wch: 8 }, { wch: 24 }, { wch: 16 }];
+              XLSX.utils.book_append_sheet(wb, assetSheet, 'Assets');
+
+              // liabilities sheet
+              const liabRows = [
+                ...balanceSheet.liabilities.map(a => ({
+                  'Code': a.code, 'Account': a.name, 'Balance (Rs.)': a.balance
+                })),
+                ...balanceSheet.equity.map(a => ({
+                  'Code': a.code, 'Account': a.name, 'Balance (Rs.)': a.balance
+                })),
+                { 'Code': '', 'Account': 'Net Profit / Loss',
+                  'Balance (Rs.)': balanceSheet.summary.net_profit },
+                { 'Code': '', 'Account': 'TOTAL LIABILITIES + EQUITY',
+                  'Balance (Rs.)': balanceSheet.summary.total_liabilities + balanceSheet.summary.total_equity }
+              ];
+              const liabSheet = XLSX.utils.json_to_sheet(liabRows);
+              liabSheet['!cols'] = [{ wch: 8 }, { wch: 24 }, { wch: 16 }];
+              XLSX.utils.book_append_sheet(wb, liabSheet, 'Liabilities & Equity');
+
+              XLSX.writeFile(wb, `balance-sheet-${asOf || 'today'}.xlsx`);
+            }}>
+              Export to Excel
+            </button>
+          </div>
+        )}
+
+        {isAdmin ? (
+          <div className="pl-grid">
+
+            {/* Assets side */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="table-card">
+                <div className="table-card__header">
+                  <h4 className="table-card__title">Assets</h4>
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Account</th>
+                      <th className="text-right">Balance (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceSheet.assets.map(a => (
+                      <tr key={a.account_id}>
+                        <td className="mono muted">{a.code}</td>
+                        <td>{a.name}</td>
+                        <td className="text-right bold income">Rs. {fmt(a.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="totals-row">
+                      <td colSpan={2} className="bold">Total Assets</td>
+                      <td className="text-right bold income">
+                        Rs. {fmt(balanceSheet.summary.total_assets)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Liabilities and equity side */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="table-card">
+                <div className="table-card__header">
+                  <h4 className="table-card__title">Liabilities</h4>
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Account</th>
+                      <th className="text-right">Balance (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceSheet.liabilities.length === 0 && (
+                      <tr><td colSpan={3} className="table__empty">No liabilities</td></tr>
+                    )}
+                    {balanceSheet.liabilities.map(a => (
+                      <tr key={a.account_id}>
+                        <td className="mono muted">{a.code}</td>
+                        <td>{a.name}</td>
+                        <td className="text-right bold expense">Rs. {fmt(a.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="totals-row">
+                      <td colSpan={2} className="bold">Total Liabilities</td>
+                      <td className="text-right bold expense">
+                        Rs. {fmt(balanceSheet.summary.total_liabilities)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div className="table-card">
+                <div className="table-card__header">
+                  <h4 className="table-card__title">Equity</h4>
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Account</th>
+                      <th className="text-right">Balance (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceSheet.equity.map(a => (
+                      <tr key={a.account_id}>
+                        <td className="mono muted">{a.code}</td>
+                        <td>{a.name}</td>
+                        <td className="text-right bold">Rs. {fmt(a.balance)}</td>
+                      </tr>
+                    ))}
+                    {/* Net profit row */}
+                    <tr>
+                      <td className="muted">—</td>
+                      <td>Net {balanceSheet.summary.net_profit >= 0 ? 'Profit' : 'Loss'} (current period)</td>
+                      <td className={`text-right bold ${balanceSheet.summary.net_profit >= 0 ? 'income' : 'expense'}`}>
+                        Rs. {fmt(Math.abs(balanceSheet.summary.net_profit))}
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr className="totals-row">
+                      <td colSpan={2} className="bold">Total Equity</td>
+                      <td className="text-right bold">
+                        Rs. {fmt(balanceSheet.summary.total_equity)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Grand total */}
+              <div className="vat-settlement">
+                <div className="vat-settlement__row vat-settlement__row--total">
+                  <span>Total Liabilities + Equity</span>
+                  <span className={balanceSheet.summary.is_balanced ? 'income' : 'expense'}>
+                    Rs. {fmt(balanceSheet.summary.total_liabilities + balanceSheet.summary.total_equity)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          <div className="role-notice">
+            <span>Balance sheet is visible to admins only.</span>
+          </div>
+        )}
+      </>
+    )}
+  </>
+)}
+{/* ══ AGING REPORT TAB ══ */}
+{activeTab === 'aging' && (
+  <>
+    {/* Aging filters */}
+    <div className="filter-bar" style={{ marginBottom: 0 }}>
+      <div className="form-group">
+        <label>Report Type</label>
+        <select value={agingType}
+          onChange={e => setAgingType(e.target.value)}>
+          <option value="receivable">Receivable — money owed to us</option>
+          <option value="payable">Payable — money we owe</option>
+        </select>
+      </div>
+      <div className="form-group">
+        <label>As of Date</label>
+        <input type="date" value={agingAsOf}
+          onChange={e => setAgingAsOf(e.target.value)} />
+      </div>
+      <div className="filter-bar__actions">
+        <button className="btn btn--primary"
+          onClick={() => fetchAging({ type: agingType, ...(agingAsOf ? { as_of: agingAsOf } : {}) })}>
+          Generate
+        </button>
+        <button className="btn btn--ghost"
+          onClick={() => { setAgingAsOf(''); fetchAging({ type: agingType }); }}>
+          Today
+        </button>
+      </div>
+    </div>
+
+    {loading ? <div className="table__empty">Loading...</div> :
+    !aging ? (
+      <div className="table-card">
+        <div className="table__empty">No data found</div>
+      </div>
+    ) : (
+      <>
+        {/* Summary cards — admin only */}
+        {isAdmin && (
+          <div className="summary-grid">
+            <div className="card card--income">
+              <div className="card__label">Current (0-30 days)</div>
+              <div className="card__value">Rs. {fmt(aging.totals.current)}</div>
+            </div>
+            <div className="card">
+              <div className="card__label">31-60 days</div>
+              <div className="card__value" style={{ color: 'var(--amber)' }}>
+                Rs. {fmt(aging.totals.days_30)}
+              </div>
+            </div>
+            <div className="card">
+              <div className="card__label">61-90 days</div>
+              <div className="card__value" style={{ color: 'var(--amber)' }}>
+                Rs. {fmt(aging.totals.days_60)}
+              </div>
+            </div>
+            <div className="card card--expense">
+              <div className="card__label">90+ days overdue</div>
+              <div className="card__value">Rs. {fmt(aging.totals.days_90)}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Export — admin only */}
+        {isAdmin && aging.data.length > 0 && (
+          <div className="export-bar">
+            <button className="btn btn--ghost" onClick={() => {
+              const rows = aging.data.map(p => ({
+                'Party':           p.party_name,
+                'VAT Number':      p.vat_number || '—',
+                'Current (Rs.)':   p.current,
+                '31-60 days':      p.days_30,
+                '61-90 days':      p.days_60,
+                '90+ days':        p.days_90,
+                'Total (Rs.)':     p.total,
+              }));
+              rows.push({
+                'Party': 'TOTALS', 'VAT Number': '',
+                'Current (Rs.)':  aging.totals.current,
+                '31-60 days':     aging.totals.days_30,
+                '61-90 days':     aging.totals.days_60,
+                '90+ days':       aging.totals.days_90,
+                'Total (Rs.)':    aging.totals.total,
+              });
+              const ws = XLSX.utils.json_to_sheet(rows);
+              const wb = XLSX.utils.book_new();
+              ws['!cols'] = [
+                { wch: 24 }, { wch: 14 }, { wch: 14 },
+                { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }
+              ];
+              XLSX.utils.book_append_sheet(wb, ws, 'Aging Report');
+              XLSX.writeFile(wb, `aging-${agingType}-${agingAsOf || 'today'}.xlsx`);
+            }}>
+              Export to Excel
+            </button>
+          </div>
+        )}
+
+        {/* Aging table */}
+        {aging.data.length === 0 ? (
+          <div className="table-card">
+            <div className="table__empty">
+              No {agingType === 'receivable' ? 'receivable' : 'payable'} transactions found
+            </div>
+          </div>
+        ) : (
+          <div className="table-card">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Party</th>
+                  {isAdmin && <th className="text-right">Current</th>}
+                  {isAdmin && <th className="text-right">31-60 days</th>}
+                  {isAdmin && <th className="text-right">61-90 days</th>}
+                  {isAdmin && <th className="text-right">90+ days</th>}
+                  {isAdmin && <th className="text-right">Total</th>}
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aging.data.map(p => (
+                  <>
+                    <tr key={p.party_id}>
+                      <td className="bold">{p.party_name}</td>
+                      {isAdmin && (
+                        <td className="text-right income">
+                          {p.current > 0 ? `Rs. ${fmt(p.current)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="text-right" style={{ color: p.days_30 > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>
+                          {p.days_30 > 0 ? `Rs. ${fmt(p.days_30)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="text-right" style={{ color: p.days_60 > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>
+                          {p.days_60 > 0 ? `Rs. ${fmt(p.days_60)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="text-right expense">
+                          {p.days_90 > 0 ? `Rs. ${fmt(p.days_90)}` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="text-right bold">Rs. {fmt(p.total)}</td>
+                      )}
+                      <td>
+                        <button className="btn btn--ghost btn--sm"
+                          onClick={() => toggleAging(p.party_id)}>
+                          {agingExpanded[p.party_id] ? 'Hide' : 'View'} ({p.transactions.length})
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Transaction details */}
+                    {agingExpanded[p.party_id] && p.transactions.map((t, i) => (
+                      <tr key={`${p.party_id}-${i}`} className="line-item-subrow">
+                        <td style={{ paddingLeft: 32 }} className="muted">
+                          ↳ {t.bs_date || new Date(t.date).toLocaleDateString()}
+                          {' — '}{t.description || 'No description'}
+                        </td>
+                        {isAdmin && <td></td>}
+                        {isAdmin && <td></td>}
+                        {isAdmin && <td></td>}
+                        {isAdmin && <td></td>}
+                        {isAdmin && (
+                          <td className="text-right bold">Rs. {fmt(t.amount)}</td>
+                        )}
+                        <td className="muted" style={{ fontSize: 11 }}>
+                          {t.age_days} days old
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                ))}
+              </tbody>
+              {isAdmin && (
+                <tfoot>
+                  <tr className="totals-row">
+                    <td className="bold">Totals</td>
+                    <td className="text-right bold income">Rs. {fmt(aging.totals.current)}</td>
+                    <td className="text-right bold" style={{ color: 'var(--amber)' }}>
+                      Rs. {fmt(aging.totals.days_30)}
+                    </td>
+                    <td className="text-right bold" style={{ color: 'var(--amber)' }}>
+                      Rs. {fmt(aging.totals.days_60)}
+                    </td>
+                    <td className="text-right bold expense">Rs. {fmt(aging.totals.days_90)}</td>
+                    <td className="text-right bold">Rs. {fmt(aging.totals.total)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+
+        {!isAdmin && (
+          <div className="role-notice">
+            <span>Aging report amounts are visible to admins only.</span>
           </div>
         )}
       </>

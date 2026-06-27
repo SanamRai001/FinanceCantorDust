@@ -1283,3 +1283,91 @@ td.expense { color: var(--red);   }
     font-size: 12px;
   }
 }
+
+/* ── Accounts ────────────────────────────── */
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+}
+
+/* ── Opening balances ────────────────────── */
+.opening-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* ── Journal entries ─────────────────────── */
+.journal-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.journal-lines {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.journal-lines__header {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1fr 40px;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-alt);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.journal-line {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1fr 40px;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+
+.journal-line select,
+.journal-line input[type="text"],
+.journal-line input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+}
+
+.journal-line input[type="number"] {
+  text-align: right;
+}
+
+.journal-line select:focus,
+.journal-line input:focus {
+  border-color: var(--blue);
+}
+
+.journal-lines__totals {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1fr 40px;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-alt);
+  border-top: 2px solid var(--border);
+  font-size: 13px;
+}

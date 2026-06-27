@@ -8,6 +8,12 @@ import Reports      from './pages/Reports';
 import Parties      from './pages/Parties';
 import Login        from './pages/Login';
 import Categories from './pages/Categories';
+import ChartOfAccounts from './pages/ChartOfAccounts';
+import JournalEntry from './pages/JournalEntry';
+
+
+import OpeningBalances from './pages/OpeningBalances';
+
 
 const ProtectedRoute = ({ children }) => {
   const { isLoggedIn, loading } = useAuth();
@@ -42,11 +48,20 @@ const App = () => {
       <Route path="/parties" element={
         <ProtectedRoute><Layout><Parties /></Layout></ProtectedRoute>
       } />
-
+<Route path="/accounts" element={
+  <ProtectedRoute><Layout><ChartOfAccounts /></Layout></ProtectedRoute>
+} />
 <Route path="/categories" element={
   <ProtectedRoute><Layout><Categories /></Layout></ProtectedRoute>
 } />
+<Route path="/opening-balances" element={
+  <ProtectedRoute><Layout><OpeningBalances /></Layout></ProtectedRoute>
+} />
+<Route path="/journals" element={
+  <ProtectedRoute><Layout><JournalEntry /></Layout></ProtectedRoute>
+} />
     </Routes>
+    
   );
 };
 

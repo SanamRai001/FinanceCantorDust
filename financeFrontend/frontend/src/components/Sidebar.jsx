@@ -35,6 +35,21 @@ const Sidebar = () => {
     isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
   Categories
 </NavLink>
+<NavLink to="/accounts"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Chart of Accounts
+</NavLink>
+<NavLink to="/opening-balances"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Opening Balances
+</NavLink>
+<NavLink to="/journals"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Journal Entries
+</NavLink>
       </nav>
 
     </div>

@@ -6,7 +6,10 @@ const pageTitles = {
   '/transactions': 'Transactions',
   '/reports':      'Reports',
   '/parties':      'Parties',
-  '/categories': 'Categories'
+  '/categories': 'Categories',
+  '/accounts': 'Chart of Accounts',
+  '/opening-balances': 'Opening Balances',
+  '/journals': 'Journal Entries'
 };
 
 const Topbar = () => {

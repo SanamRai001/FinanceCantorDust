@@ -1,6 +1,7 @@
 import Transaction from '../models/Transaction.js';
 import Party from '../models/Party.js';
-
+import Account from '../models/Account.js';
+import JournalEntry from '../models/JournalEntry.js';
 // ── helper: build date filter ─────────────────────────────────
 const buildDateFilter = (from, to) => {
   const filter = {};
@@ -296,6 +297,318 @@ export const getCategoryReport = async (req, res) => {
       },
       overall, // admin only — enforced on frontend
       data:    groups
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+// ═══════════════════════════════════════════════════════════════
+// TRIAL BALANCE
+// GET /api/reports/trial-balance
+// query params: from, to
+// shows all accounts with their debit and credit totals
+// total debits must equal total credits for books to balance
+// ═══════════════════════════════════════════════════════════════
+
+export const getTrialBalance = async (req, res) => {
+  try {
+    const filter = buildDateFilter(req.query.from, req.query.to);
+
+    // get all active accounts
+    const accounts = await Account.find({ is_active: true })
+      .sort({ code: 1 });
+
+    // get all transactions in period
+    const transactions = await Transaction.find(filter)
+      .populate('account', 'code name type group');
+
+    // build account balance map
+    const balanceMap = {};
+
+    // initialise all accounts with opening balances
+    accounts.forEach(acc => {
+      balanceMap[acc._id.toString()] = {
+        account_id:   acc._id,
+        code:         acc.code,
+        name:         acc.name,
+        type:         acc.type,
+        group:        acc.group || '',
+        debit:        acc.opening_balance_type === 'debit'  ? acc.opening_balance : 0,
+        credit:       acc.opening_balance_type === 'credit' ? acc.opening_balance : 0,
+      };
+    });
+
+    // add transaction amounts to each account
+    transactions.forEach(txn => {
+      if (!txn.account) return; // skip transactions with no account linked
+
+      const key = txn.account._id.toString();
+      if (!balanceMap[key]) return;
+
+      balanceMap[key].debit  += txn.debit  || 0;
+      balanceMap[key].credit += txn.credit || 0;
+    });
+
+    // calculate net balance per account
+    // assets and expenses — debit normal balance
+    // liabilities, equity, income — credit normal balance
+    const rows = Object.values(balanceMap).map(row => {
+      const isDebitNormal = ['asset', 'expense'].includes(row.type);
+      const net_balance   = isDebitNormal
+        ? row.debit - row.credit
+        : row.credit - row.debit;
+
+      return { ...row, net_balance };
+    });
+
+    // filter out zero balance accounts unless they have opening balance
+    const nonZero = rows.filter(r => r.debit > 0 || r.credit > 0);
+
+    // totals — must be equal for balanced books
+    const total_debit  = nonZero.reduce((sum, r) => sum + r.debit,  0);
+    const total_credit = nonZero.reduce((sum, r) => sum + r.credit, 0);
+    const difference   = Math.abs(total_debit - total_credit);
+    const is_balanced  = difference < 0.01;
+
+    // group by account type for display
+    const grouped = {
+      asset:     nonZero.filter(r => r.type === 'asset'),
+      liability: nonZero.filter(r => r.type === 'liability'),
+      equity:    nonZero.filter(r => r.type === 'equity'),
+      income:    nonZero.filter(r => r.type === 'income'),
+      expense:   nonZero.filter(r => r.type === 'expense'),
+    };
+
+    res.json({
+      success: true,
+      period:  {
+        from: req.query.from || 'all time',
+        to:   req.query.to   || 'all time'
+      },
+      summary: {
+        total_debit,
+        total_credit,
+        difference,
+        is_balanced
+      },
+      data:    nonZero,
+      grouped
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+// ═══════════════════════════════════════════════════════════════
+// BALANCE SHEET
+// GET /api/reports/balance-sheet
+// query params: as_of (date to calculate balance sheet as of)
+// shows assets = liabilities + equity at a point in time
+// ═══════════════════════════════════════════════════════════════
+export const getBalanceSheet = async (req, res) => {
+  try {
+    // balance sheet is always as of a specific date
+    // default to today
+    const asOf = req.query.as_of
+      ? new Date(req.query.as_of)
+      : new Date();
+
+    // get all active accounts
+    const accounts = await Account.find({ is_active: true })
+      .sort({ code: 1 });
+
+    // get all transactions up to asOf date
+    const transactions = await Transaction.find({
+      date: { $lte: asOf }
+    }).populate('account', 'code name type group');
+
+    // get all journal entries up to asOf date
+    const journalEntries = await JournalEntry.find({
+      date: { $lte: asOf }
+    }).populate('lines.account', 'code name type');
+
+    // ── build account balance map ─────────────
+    const balanceMap = {};
+
+    accounts.forEach(acc => {
+      balanceMap[acc._id.toString()] = {
+        account_id:   acc._id,
+        code:         acc.code,
+        name:         acc.name,
+        type:         acc.type,
+        group:        acc.group || '',
+        balance:      acc.opening_balance_type === 'debit'
+                        ? acc.opening_balance
+                        : -acc.opening_balance
+      };
+    });
+
+    // add transaction amounts
+    transactions.forEach(txn => {
+      if (!txn.account) return;
+      const key = txn.account._id.toString();
+      if (!balanceMap[key]) return;
+      balanceMap[key].balance += (txn.debit || 0) - (txn.credit || 0);
+    });
+
+    // add journal entry amounts
+    journalEntries.forEach(entry => {
+      entry.lines.forEach(line => {
+        if (!line.account) return;
+        const key = line.account._id.toString();
+        if (!balanceMap[key]) return;
+        balanceMap[key].balance += (line.debit || 0) - (line.credit || 0);
+      });
+    });
+
+    // ── group by type ─────────────────────────
+    const allAccounts = Object.values(balanceMap);
+
+    // assets — positive debit balance
+    const assets = allAccounts
+      .filter(a => a.type === 'asset' && a.balance !== 0)
+      .map(a => ({ ...a, balance: a.balance }));
+
+    // liabilities — positive credit balance (shown as positive)
+    const liabilities = allAccounts
+      .filter(a => a.type === 'liability' && a.balance !== 0)
+      .map(a => ({ ...a, balance: -a.balance }));
+
+    // equity — positive credit balance (shown as positive)
+    const equity = allAccounts
+      .filter(a => a.type === 'equity' && a.balance !== 0)
+      .map(a => ({ ...a, balance: -a.balance }));
+
+    // ── calculate net profit from income and expense ──
+    // net profit is part of equity in balance sheet
+    const incomeAccounts  = allAccounts.filter(a => a.type === 'income');
+    const expenseAccounts = allAccounts.filter(a => a.type === 'expense');
+
+    const total_income  = incomeAccounts .reduce((sum, a) => sum + (-a.balance), 0);
+    const total_expense = expenseAccounts.reduce((sum, a) => sum + a.balance,    0);
+    const net_profit    = total_income - total_expense;
+
+    // ── totals ────────────────────────────────
+    const total_assets      = assets     .reduce((sum, a) => sum + a.balance, 0);
+    const total_liabilities = liabilities.reduce((sum, a) => sum + a.balance, 0);
+    const total_equity      = equity     .reduce((sum, a) => sum + a.balance, 0) + net_profit;
+
+    // assets should equal liabilities + equity
+    const is_balanced = Math.abs(total_assets - (total_liabilities + total_equity)) < 0.01;
+
+    res.json({
+      success: true,
+      as_of:   asOf,
+      summary: {
+        total_assets,
+        total_liabilities,
+        total_equity,
+        net_profit,
+        is_balanced
+      },
+      assets,
+      liabilities,
+      equity,
+      net_profit_entry: {
+        name:    'Net Profit / Loss (current period)',
+        balance: net_profit
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+// ═══════════════════════════════════════════════════════════════
+// AGING REPORT
+// GET /api/reports/aging
+// query params: type (receivable/payable), as_of
+// shows outstanding balances by party grouped by age
+// ═══════════════════════════════════════════════════════════════
+export const getAgingReport = async (req, res) => {
+  try {
+    const asOf = req.query.as_of
+      ? new Date(req.query.as_of)
+      : new Date();
+
+    // type: receivable = money owed to us (income parties)
+    //       payable    = money we owe (expense parties)
+    const reportType = req.query.type || 'receivable';
+
+    const txnType = reportType === 'receivable' ? 'income' : 'expense';
+
+    // get all transactions up to asOf
+    const transactions = await Transaction.find({
+      date: { $lte: asOf },
+      type: txnType
+    }).populate('party', 'name vat_number pan_number type');
+
+    // ── group by party ────────────────────────
+    const partyMap = {};
+
+    transactions.forEach(txn => {
+      if (!txn.party) return;
+
+      const partyId   = txn.party._id.toString();
+      const partyName = txn.party.name;
+
+      if (!partyMap[partyId]) {
+        partyMap[partyId] = {
+          party_id:   partyId,
+          party_name: partyName,
+          vat_number: txn.party.vat_number || null,
+          total:      0,
+          current:    0, // 0-30 days
+          days_30:    0, // 31-60 days
+          days_60:    0, // 61-90 days
+          days_90:    0, // 90+ days overdue
+          transactions: []
+        };
+      }
+
+      // calculate age of transaction in days
+      const txnDate = new Date(txn.date);
+      const ageDays = Math.floor((asOf - txnDate) / (1000 * 60 * 60 * 24));
+
+      partyMap[partyId].total += txn.gross_amount;
+
+      // bucket by age
+      if      (ageDays <= 30)  partyMap[partyId].current += txn.gross_amount;
+      else if (ageDays <= 60)  partyMap[partyId].days_30 += txn.gross_amount;
+      else if (ageDays <= 90)  partyMap[partyId].days_60 += txn.gross_amount;
+      else                     partyMap[partyId].days_90 += txn.gross_amount;
+
+      partyMap[partyId].transactions.push({
+        _id:         txn._id,
+        date:        txn.date,
+        bs_date:     txn.bs_date,
+        description: txn.description,
+        amount:      txn.gross_amount,
+        age_days:    ageDays
+      });
+    });
+
+    const rows = Object.values(partyMap)
+      .filter(p => p.total > 0)
+      .sort((a, b) => b.total - a.total);
+
+    // ── overall totals ────────────────────────
+    const totals = rows.reduce((acc, p) => {
+      acc.total   += p.total;
+      acc.current += p.current;
+      acc.days_30 += p.days_30;
+      acc.days_60 += p.days_60;
+      acc.days_90 += p.days_90;
+      return acc;
+    }, { total: 0, current: 0, days_30: 0, days_60: 0, days_90: 0 });
+
+    res.json({
+      success:     true,
+      report_type: reportType,
+      as_of:       asOf,
+      totals,
+      data:        rows
     });
 
   } catch (err) {

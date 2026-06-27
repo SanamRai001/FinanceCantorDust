@@ -21,6 +21,7 @@ const emptyForm = {
   bill_ref_type:   'none',
   bill_ref_number: '',
   bs_date:         '',
+  account: '', 
 };
 
 const emptyItem = { name: '', quantity: 1, unit_price: '', total: 0 };
@@ -37,7 +38,7 @@ const Transactions = () => {
   const { canEdit }                     = useAuth();
   const [form,         setForm]         = useState(emptyForm);
   const [attachment,   setAttachment]   = useState(null);
-
+const [accounts, setAccounts] = useState([]);
   const fetchTransactions = () => {
     API.get('/transactions')
       .then(res => setTransactions(res.data.data))
@@ -49,6 +50,7 @@ const Transactions = () => {
     fetchTransactions();
     API.get('/party').then(res => setParties(res.data.data));
     API.get('/categories').then(res => setCategories(res.data.data));
+    API.get('/accounts').then(res => setAccounts(res.data.data));
   }, []);
 
   // ── recalculate totals from line items ────
@@ -251,6 +253,26 @@ const Transactions = () => {
                 }
               </select>
             </div>
+            {/* Account */}
+<div className="form-group">
+  <label>Account (Chart of Accounts)</label>
+  <select name="account" value={form.account} onChange={handleChange}>
+    <option value="">— Select account —</option>
+    {accounts
+      .filter(a =>
+        a.is_active &&
+        (form.type === 'income'
+          ? ['income', 'asset'].includes(a.type)
+          : ['expense', 'liability'].includes(a.type))
+      )
+      .map(a => (
+        <option key={a._id} value={a._id}>
+          {a.code} — {a.name}
+        </option>
+      ))
+    }
+  </select>
+</div>
 
             {/* Description */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -288,6 +310,7 @@ const Transactions = () => {
                     <th style={{ width: 120 }}>Unit price</th>
                     <th style={{ width: 120 }}>Total</th>
                     <th style={{ width: 40 }}></th>
+                    
                   </tr>
                 </thead>
                 <tbody>
@@ -454,6 +477,7 @@ const Transactions = () => {
               <th>Date (BS)</th>
               <th>Party</th>
               <th>Category</th>
+              <th>Account</th>
               <th>Description</th>
               <th>Type</th>
               <th>Payment</th>
@@ -465,8 +489,8 @@ const Transactions = () => {
           <tbody>
             {transactions.length === 0 && (
               <tr>
-                <td colSpan={8} className="table__empty">
-                  No transactions yet — add one above
+<td colSpan={9} className="table__empty">
+                    No transactions yet — add one above
                 </td>
               </tr>
             )}
@@ -484,6 +508,11 @@ const Transactions = () => {
                     </span>
                   ) : '—'}
                 </td>
+                <td className="muted">
+  {t.account
+    ? `${t.account.code} — ${t.account.name}`
+    : '—'}
+</td>
                 <td>{t.description || '—'}</td>
                 <td>
                   <span className={`badge badge--${t.type}`}>{t.type}</span>

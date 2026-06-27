@@ -1,7 +1,7 @@
 import Transaction from '../models/Transaction.js';
 import Party       from '../models/Party.js';
 import Category    from '../models/Category.js';
-
+import Account from '../models/Account.js';
 // ── GET all transactions (with filters) ───────────────────────
 export const getTransactions = async (req, res) => {
   try {
@@ -49,6 +49,7 @@ export const getTransactions = async (req, res) => {
     const txns = await Transaction.find(filter)
       .populate('party',    'name vat_number pan_number type')
       .populate('category', 'name color type group')
+      
       .sort({ date: 1 });
 
     let balance = 0;
@@ -119,8 +120,18 @@ export const createTransaction = async (req, res) => {
       net_amount, vat_applicable, vat_percent, vat_amount,
       payment_method, payment_ref,
       bill_ref_type, bill_ref_number,
-      bs_date, category, discount
+      bs_date, category, discount,
+      account
     } = req.body;
+    if (account) {
+  const accountExists = await Account.findById(account);
+  if (!accountExists) {
+    return res.status(400).json({
+      success: false,
+      error:   'Account not found'
+    });
+  }
+}
 const attachmentPath = req.file 
   ? req.file.path.replace(/\\/g, '/') // fix Windows backslashes
   : null;
@@ -169,13 +180,15 @@ const attachmentPath = req.file
       bill_ref_type:   bill_ref_type   || 'none',
       bill_ref_number: bill_ref_number || null,
       bs_date:         bs_date         || null,
-attachment: attachmentPath      // voucher_type — hook sets this
+attachment: attachmentPath,   // voucher_type — hook sets this
+account: account || null,
     });
 
     await txn.save();
     await txn.populate([
       { path: 'party',    select: 'name vat_number type' },
-      { path: 'category', select: 'name color type group' }
+      { path: 'category', select: 'name color type group' },
+      { path: 'account',  select: 'code name type group' }
     ]);
 
     res.status(201).json({ success: true, data: txn });
@@ -197,12 +210,13 @@ export const updateTransaction = async (req, res) => {
       });
     }
 
-    const allowed = [
-      'date', 'type', 'party', 'category', 'description',
-      'net_amount', 'vat_applicable', 'vat_percent', 'vat_amount',
-      'discount', 'payment_method', 'payment_ref',
-      'bill_ref_type', 'bill_ref_number', 'bs_date'
-    ];
+   const allowed = [
+  'date', 'type', 'party', 'category', 'account', // ADD account
+  'description', 'net_amount', 'vat_applicable',
+  'vat_percent', 'vat_amount', 'discount',
+  'payment_method', 'payment_ref',
+  'bill_ref_type', 'bill_ref_number', 'bs_date'
+];
 
     allowed.forEach(field => {
       if (req.body[field] !== undefined) txn[field] = req.body[field];
@@ -220,7 +234,8 @@ export const updateTransaction = async (req, res) => {
     await txn.save();
     await txn.populate([
       { path: 'party',    select: 'name vat_number type' },
-      { path: 'category', select: 'name color type group' }
+      { path: 'category', select: 'name color type group' },
+      { path: 'account',  select: 'code name type group' }
     ]);
 
     res.json({ success: true, data: txn });
