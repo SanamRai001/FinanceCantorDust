@@ -1,5 +1,7 @@
-import Transaction from '../models/Transaction.js';
-import Party from '../models/Party.js';
+import Transaction  from '../models/Transaction.js';
+import JournalEntry from '../models/JournalEntry.js';
+import Account      from '../models/Account.js';
+import Party        from '../models/Party.js';
 
 // ── helper: escape XML special characters ─
 const escapeXml = (str) => {
@@ -18,7 +20,53 @@ const tallyDate = (date) => {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// ── GET /api/export/tally ─────────────────
+// ── helper: map account type to Tally group ──
+// converts our account types to Tally's standard groups
+const tallyGroup = (account, partyType) => {
+  if (!account) {
+    // fall back to party type if no account linked
+    if (partyType === 'supplier') return 'Sundry Creditors';
+    if (partyType === 'employee') return 'Sundry Creditors';
+    if (partyType === 'client')   return 'Sundry Debtors';
+    return 'Sundry Debtors';
+  }
+
+  const groupMap = {
+    // asset groups
+    'current_asset':      'Current Assets',
+    'fixed_asset':        'Fixed Assets',
+    'other_asset':        'Loans & Advances (Asset)',
+
+    // liability groups
+    'current_liability':  'Current Liabilities',
+    'long_term_liability':'Loans (Liability)',
+
+    // equity groups
+    'owners_equity':      'Capital Account',
+    'retained_earnings':  'Reserves & Surplus',
+
+    // income groups
+    'operating_income':   'Sales Accounts',
+    'other_income':       'Indirect Income',
+
+    // expense groups
+    'operating_expense':  'Indirect Expenses',
+    'other_expense':      'Indirect Expenses',
+  };
+
+  // special cases — Tally has specific names for these
+  if (account.code === '1110') return 'Cash-in-Hand';
+  if (account.code === '1120') return 'Bank Accounts';
+  if (account.code === '2120') return 'Duties & Taxes';
+  if (account.code === '2130') return 'Duties & Taxes';
+
+  return groupMap[account.group] || 'Indirect Expenses';
+};
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/export/tally
+// exports transactions + journal entries to Tally XML
+// ═══════════════════════════════════════════════════════════════
 export const exportToTally = async (req, res) => {
   try {
     const filter = {};
@@ -33,76 +81,118 @@ export const exportToTally = async (req, res) => {
       filter.tally_exported = false;
     }
 
-    const transactions = await Transaction.find(filter)
-      .populate('party', 'name vat_number pan_number type')
-      .sort({ date: 1 });
+    // fetch transactions and journal entries
+    const [transactions, journalEntries, allAccounts] = await Promise.all([
+      Transaction.find(filter)
+        .populate('party',   'name vat_number pan_number type')
+        .populate('account', 'code name type group')
+        .sort({ date: 1 }),
 
-    if (transactions.length === 0) {
+      JournalEntry.find(
+        req.query.from || req.query.to ? filter : {}
+      )
+        .populate('lines.account', 'code name type group')
+        .sort({ date: 1 }),
+
+      Account.find({ is_active: true }).sort({ code: 1 })
+    ]);
+
+    if (transactions.length === 0 && journalEntries.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'No transactions found for the selected period'
+        error:   'No transactions or journal entries found for the selected period'
       });
     }
 
-    // ── Step 1: collect all unique ledger names ───────────────
-    // Tally needs to know every account before vouchers are posted
-    // We collect all party names + cash/bank ledgers used
-    const ledgerSet = new Set();
+    // ── Step 1: build master ledger set ──────────────────────
+    // collect every unique account name needed across
+    // transactions and journal entries
+    const ledgerMap = new Map();
+    // key = ledger name, value = { name, group }
 
+    // add all chart of accounts
+    allAccounts.forEach(acc => {
+      ledgerMap.set(acc.name, {
+        name:  acc.name,
+        group: tallyGroup(acc, null)
+      });
+    });
+
+    // add party names from transactions
     transactions.forEach(txn => {
-      const partyName  = txn.party?.name || 'Sundry Account';
-      const cashLedger = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
-      ledgerSet.add(partyName);
-      ledgerSet.add(cashLedger);
+      const partyName = txn.party?.name;
+      if (partyName && !ledgerMap.has(partyName)) {
+        ledgerMap.set(partyName, {
+          name:  partyName,
+          group: tallyGroup(null, txn.party?.type)
+        });
+      }
+
+      // add cash or bank if no account linked
+      if (!txn.account) {
+        const cashLedger = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+        if (!ledgerMap.has(cashLedger)) {
+          ledgerMap.set(cashLedger, {
+            name:  cashLedger,
+            group: cashLedger === 'Cash' ? 'Cash-in-Hand' : 'Bank Accounts'
+          });
+        }
+      }
     });
 
     // ── Step 2: build Ledger Master XML ──────────────────────
-    // This tells Tally "create these accounts first"
-    // before any voucher tries to post into them
-    const ledgerMasters = [...ledgerSet].map(name => {
-
-      // determine which Tally group this ledger belongs to
-      // Cash → Cash-in-Hand, Bank Account → Bank Accounts
-      // party names → Sundry Debtors or Sundry Creditors
-      let group = 'Sundry Debtors'; // default for unknown parties
-
-      if (name === 'Cash') {
-        group = 'Cash-in-Hand';
-      } else if (name === 'Bank Account') {
-        group = 'Bank Accounts';
-      } else {
-        // find the party from transactions to determine type
-        const matchedTxn = transactions.find(t => t.party?.name === name);
-        if (matchedTxn) {
-          const partyType = matchedTxn.party?.type;
-          if (partyType === 'supplier') group = 'Sundry Creditors';
-          if (partyType === 'client')   group = 'Sundry Debtors';
-          if (partyType === 'employee') group = 'Sundry Creditors';
-        }
-      }
-
-      return `
-          <LEDGER NAME="${escapeXml(name)}" ACTION="Create">
-            <NAME>${escapeXml(name)}</NAME>
-            <PARENT>${escapeXml(group)}</PARENT>
+    const ledgerMasters = [...ledgerMap.values()].map(ledger => `
+          <LEDGER NAME="${escapeXml(ledger.name)}" ACTION="Create">
+            <NAME>${escapeXml(ledger.name)}</NAME>
+            <PARENT>${escapeXml(ledger.group)}</PARENT>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>`
+    ).join('');
+
+    // ── Step 3: build opening balance masters ────────────────
+    // export accounts with opening balances as Tally ledgers
+    const openingBalanceMasters = allAccounts
+      .filter(acc => acc.opening_balance > 0)
+      .map(acc => {
+        const amount = acc.opening_balance_type === 'debit'
+          ? -acc.opening_balance  // Tally uses negative for debit opening
+          : acc.opening_balance;
+        return `
+          <LEDGER NAME="${escapeXml(acc.name)}" ACTION="Alter">
+            <NAME>${escapeXml(acc.name)}</NAME>
+            <OPENINGBALANCE>${amount}</OPENINGBALANCE>
           </LEDGER>`;
-    }).join('');
+      }).join('');
 
-    // ── Step 3: build Voucher XML ─────────────────────────────
-    const vouchers = transactions.map(txn => {
-      const partyName    = escapeXml(txn.party?.name || 'Sundry Account');
-      const voucherType  = txn.voucher_type === 'receipt' ? 'Receipt' : 'Payment';
-      const amount       = txn.gross_amount;
-      const narration    = escapeXml(txn.description || '');
-      const refNumber    = escapeXml(txn.bill_ref_number || '');
-      const cashLedger   = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+    // ── Step 4: build Transaction Voucher XML ─────────────────
+    const transactionVouchers = transactions.map(txn => {
+      const partyName   = escapeXml(txn.party?.name || 'Sundry Account');
+      const voucherType = txn.voucher_type === 'receipt' ? 'Receipt' : 'Payment';
+      const amount      = txn.gross_amount;
+      const narration   = escapeXml(txn.description || '');
+      const refNumber   = escapeXml(txn.bill_ref_number || '');
 
-      // receipt → debit cash/bank, credit party
-      // payment → debit party,      credit cash/bank
-      const debitLedger  = txn.type === 'income' ? cashLedger : partyName;
-      const creditLedger = txn.type === 'income' ? partyName  : cashLedger;
+      // use linked account name if available, otherwise cash/bank
+      const cashLedger  = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+      const accountName = txn.account?.name || cashLedger;
+
+      // receipt → debit account, credit party
+      // payment → debit party,   credit account
+      const debitLedger  = txn.type === 'income'
+        ? escapeXml(accountName)
+        : partyName;
+      const creditLedger = txn.type === 'income'
+        ? partyName
+        : escapeXml(accountName);
+
+      // add VAT entry if applicable
+      const vatEntry = txn.vat_applicable && txn.vat_amount > 0 ? `
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>VAT Payable</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>${txn.type === 'income' ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+              <AMOUNT>${txn.type === 'income' ? txn.vat_amount : -txn.vat_amount}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>` : '';
 
       return `
           <VOUCHER REMOTEID="${txn._id}" VCHTYPE="${voucherType}" ACTION="Create">
@@ -118,14 +208,42 @@ export const exportToTally = async (req, res) => {
             <ALLLEDGERENTRIES.LIST>
               <LEDGERNAME>${creditLedger}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <AMOUNT>${amount}</AMOUNT>
+              <AMOUNT>${txn.type === 'income' ? txn.net_amount : amount}</AMOUNT>
             </ALLLEDGERENTRIES.LIST>
+            ${vatEntry}
           </VOUCHER>`;
     }).join('');
 
-    // ── Step 4: wrap in Tally XML envelope ───────────────────
-    // Ledger masters come FIRST — vouchers come AFTER
-    // This is the fix — Tally creates accounts before posting
+    // ── Step 5: build Journal Entry Voucher XML ───────────────
+    const journalVouchers = journalEntries.map(entry => {
+      const voucherType = entry.voucher_type === 'contra' ? 'Contra' : 'Journal';
+      const narration   = escapeXml(entry.narration || '');
+      const refNumber   = escapeXml(entry.reference_number || '');
+
+      const lines = entry.lines.map(line => {
+        const ledgerName  = escapeXml(line.account?.name || 'Sundry Account');
+        const isDebit     = line.debit > 0;
+        const amount      = isDebit ? line.debit : line.credit;
+
+        return `
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>${ledgerName}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>${isDebit ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+              <AMOUNT>${isDebit ? -amount : amount}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>`;
+      }).join('');
+
+      return `
+          <VOUCHER REMOTEID="${entry._id}" VCHTYPE="${voucherType}" ACTION="Create">
+            <DATE>${tallyDate(entry.date)}</DATE>
+            <NARRATION>${narration}</NARRATION>
+            <VOUCHERTYPENAME>${voucherType}</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>${refNumber}</VOUCHERNUMBER>
+            ${lines}
+          </VOUCHER>`;
+    }).join('');
+
+    // ── Step 6: wrap in Tally XML envelope ───────────────────
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
@@ -141,14 +259,24 @@ export const exportToTally = async (req, res) => {
       </REQUESTDESC>
       <REQUESTDATA>
 
-        <!-- ── Ledger Masters — created first ── -->
+        <!-- ── Ledger Masters ── -->
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
           ${ledgerMasters}
         </TALLYMESSAGE>
 
-        <!-- ── Vouchers — posted after masters ── -->
+        <!-- ── Opening Balances ── -->
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          ${vouchers}
+          ${openingBalanceMasters}
+        </TALLYMESSAGE>
+
+        <!-- ── Transaction Vouchers ── -->
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          ${transactionVouchers}
+        </TALLYMESSAGE>
+
+        <!-- ── Journal and Contra Vouchers ── -->
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          ${journalVouchers}
         </TALLYMESSAGE>
 
       </REQUESTDATA>
@@ -156,13 +284,19 @@ export const exportToTally = async (req, res) => {
   </BODY>
 </ENVELOPE>`;
 
-    // ── Step 5: mark as exported ──────────────────────────────
-    await Transaction.updateMany(
-      { _id: { $in: transactions.map(t => t._id) } },
-      { tally_exported: true, tally_exported_at: new Date() }
-    );
+    // ── Step 7: mark transactions as exported ─────────────────
+    await Promise.all([
+      Transaction.updateMany(
+        { _id: { $in: transactions.map(t => t._id) } },
+        { tally_exported: true, tally_exported_at: new Date() }
+      ),
+      JournalEntry.updateMany(
+        { _id: { $in: journalEntries.map(j => j._id) } },
+        { tally_exported: true, tally_exported_at: new Date() }
+      )
+    ]);
 
-    // ── Step 6: send as file download ─────────────────────────
+    // ── Step 8: send as file download ─────────────────────────
     const filename = `tally-export-${Date.now()}.xml`;
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

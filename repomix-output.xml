@@ -63,6 +63,7 @@ financeFrontend/frontend/src/main.jsx
 financeFrontend/frontend/src/pages/Categories.jsx
 financeFrontend/frontend/src/pages/ChartOfAccounts.jsx
 financeFrontend/frontend/src/pages/Dashboard.jsx
+financeFrontend/frontend/src/pages/Export.jsx
 financeFrontend/frontend/src/pages/JournalEntry.jsx
 financeFrontend/frontend/src/pages/Login.jsx
 financeFrontend/frontend/src/pages/OpeningBalances.jsx
@@ -124,6 +125,313 @@ User_Guide.docx
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="financeFrontend/frontend/src/pages/Export.jsx">
+import { useState } from 'react';
+import API from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import * as XLSX from 'xlsx';
+
+const Export = () => {
+  const { isAdmin }               = useAuth();
+  const [tallyFilters, setTallyFilters] = useState({
+    from:             '',
+    to:               '',
+    unexported_only:  false
+  });
+  const [excelFilters, setExcelFilters] = useState({
+    from: '',
+    to:   ''
+  });
+  const [loading, setLoading] = useState({
+    tally:   false,
+    ledger:  false,
+    journal: false
+  });
+  const [lastExport, setLastExport] = useState(null);
+  const [error,      setError]      = useState('');
+
+  const setLoadingKey = (key, val) => {
+    setLoading(prev => ({ ...prev, [key]: val }));
+  };
+
+  // ── Tally XML export ──────────────────────
+  const handleTallyExport = async () => {
+    setError('');
+    setLoadingKey('tally', true);
+    try {
+      const params = {};
+      if (tallyFilters.from)            params.from             = tallyFilters.from;
+      if (tallyFilters.to)              params.to               = tallyFilters.to;
+      if (tallyFilters.unexported_only) params.unexported_only  = 'true';
+
+      const res = await API.get('/export/tally', {
+        params,
+        responseType: 'blob'
+      });
+
+      const url      = window.URL.createObjectURL(new Blob([res.data]));
+      const a        = document.createElement('a');
+      a.href         = url;
+      a.download     = `tally-export-${Date.now()}.xml`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      setLastExport({
+        type: 'Tally XML',
+        time: new Date().toLocaleTimeString(),
+        date: new Date().toLocaleDateString()
+      });
+    } catch (err) {
+      setError('Tally export failed — ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setLoadingKey('tally', false);
+    }
+  };
+
+  // ── Excel ledger export ───────────────────
+  const handleLedgerExcel = async () => {
+    setError('');
+    setLoadingKey('ledger', true);
+    try {
+      const params = {};
+      if (excelFilters.from) params.from = excelFilters.from;
+      if (excelFilters.to)   params.to   = excelFilters.to;
+
+      const res = await API.get('/reports/ledger', { params });
+      const { data: rows, summary } = res.data;
+
+      if (rows.length === 0) {
+        setError('No transactions found for the selected period');
+        return;
+      }
+
+      const excelRows = rows.map(t => ({
+        'Date (BS)':      t.bs_date || new Date(t.date).toLocaleDateString(),
+        'Date (AD)':      new Date(t.date).toLocaleDateString(),
+        'Party':          t.party?.name     || '—',
+        'Category':       t.category?.name  || '—',
+        'Account Code':   t.account?.code   || '—',
+        'Account Name':   t.account?.name   || '—',
+        'Description':    t.description     || '—',
+        'Voucher Type':   t.voucher_type    || '—',
+        'Payment Method': t.payment_method  || '—',
+        'Bill Reference': t.bill_ref_number || '—',
+        'Debit (Rs.)':    t.debit           || 0,
+        'Credit (Rs.)':   t.credit          || 0,
+        'Balance (Rs.)':  t.running_balance || 0,
+      }));
+
+      // totals row
+      excelRows.push({
+        'Date (BS)': '', 'Date (AD)': '', 'Party': '',
+        'Category': '', 'Account Code': '', 'Account Name': '',
+        'Description': 'TOTALS', 'Voucher Type': '',
+        'Payment Method': '', 'Bill Reference': '',
+        'Debit (Rs.)':   summary.total_debit,
+        'Credit (Rs.)':  summary.total_credit,
+        'Balance (Rs.)': summary.closing_balance,
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(excelRows);
+      const workbook  = XLSX.utils.book_new();
+      worksheet['!cols'] = [
+        { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 16 },
+        { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 14 },
+        { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Ledger');
+      XLSX.writeFile(workbook,
+        `ledger-${excelFilters.from || 'all'}-to-${excelFilters.to || 'time'}.xlsx`
+      );
+
+      setLastExport({
+        type: 'Ledger Excel',
+        time: new Date().toLocaleTimeString(),
+        date: new Date().toLocaleDateString()
+      });
+    } catch (err) {
+      setError('Ledger export failed — ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setLoadingKey('ledger', false);
+    }
+  };
+
+  // ── Journal Excel export ──────────────────
+  const handleJournalExcel = async () => {
+    setError('');
+    setLoadingKey('journal', true);
+    try {
+      const params = {};
+      if (excelFilters.from) params.from = excelFilters.from;
+      if (excelFilters.to)   params.to   = excelFilters.to;
+
+      const res = await API.get('/journals/export/excel', {
+        params,
+        responseType: 'blob'
+      });
+
+      const url  = window.URL.createObjectURL(new Blob([res.data]));
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `journal-entries-${Date.now()}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      setLastExport({
+        type: 'Journal Excel',
+        time: new Date().toLocaleTimeString(),
+        date: new Date().toLocaleDateString()
+      });
+    } catch (err) {
+      setError('Journal export failed — ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setLoadingKey('journal', false);
+    }
+  };
+
+  if (!isAdmin) return (
+    <div className="role-notice">
+      Exports are only available to admins.
+    </div>
+  );
+
+  return (
+    <div className="export-page">
+
+      {error && (
+        <div className="form-error">{error}</div>
+      )}
+
+      {lastExport && (
+        <div className="role-notice" style={{ borderLeftColor: 'var(--green)' }}>
+          Last export: <strong>{lastExport.type}</strong> at {lastExport.time} on {lastExport.date}
+        </div>
+      )}
+
+      {/* ── Tally XML export ── */}
+      <div className="export-section">
+        <div className="export-section__header">
+          <div>
+            <h3 className="export-section__title">Tally XML Export</h3>
+            <p className="export-section__desc">
+              Exports all transactions and journal entries to Tally XML format.
+              Includes ledger masters, opening balances, receipt vouchers,
+              payment vouchers, journal vouchers and contra vouchers.
+            </p>
+          </div>
+        </div>
+
+        <div className="export-section__filters">
+          <div className="form-group">
+            <label>From Date</label>
+            <input type="date" value={tallyFilters.from}
+              onChange={e => setTallyFilters(p => ({ ...p, from: e.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>To Date</label>
+            <input type="date" value={tallyFilters.to}
+              onChange={e => setTallyFilters(p => ({ ...p, to: e.target.value }))} />
+          </div>
+          <div className="form-group form-group--center">
+            <label>Unexported only</label>
+            <input type="checkbox"
+              checked={tallyFilters.unexported_only}
+              onChange={e => setTallyFilters(p => ({
+                ...p, unexported_only: e.target.checked
+              }))} />
+          </div>
+        </div>
+
+        <div className="export-section__what">
+          <span className="export-tag">✓ Transactions</span>
+          <span className="export-tag">✓ Journal Entries</span>
+          <span className="export-tag">✓ Ledger Masters</span>
+          <span className="export-tag">✓ Opening Balances</span>
+          <span className="export-tag">✓ VAT Split</span>
+        </div>
+
+        <button className="btn btn--primary"
+          onClick={handleTallyExport}
+          disabled={loading.tally}>
+          {loading.tally ? 'Generating...' : 'Export to Tally XML'}
+        </button>
+      </div>
+
+      {/* ── Excel exports ── */}
+      <div className="export-section">
+        <div className="export-section__header">
+          <div>
+            <h3 className="export-section__title">Excel Exports</h3>
+            <p className="export-section__desc">
+              Export ledger or journal entries to Excel.
+              Use the same date range for both.
+            </p>
+          </div>
+        </div>
+
+        <div className="export-section__filters">
+          <div className="form-group">
+            <label>From Date</label>
+            <input type="date" value={excelFilters.from}
+              onChange={e => setExcelFilters(p => ({ ...p, from: e.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>To Date</label>
+            <input type="date" value={excelFilters.to}
+              onChange={e => setExcelFilters(p => ({ ...p, to: e.target.value }))} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+
+          {/* Ledger Excel */}
+          <div className="export-card">
+            <div className="export-card__title">Full Ledger</div>
+            <div className="export-card__desc">
+              All transactions with account codes, party names,
+              categories, debit, credit and running balance.
+            </div>
+            <div className="export-section__what">
+              <span className="export-tag">✓ Account codes</span>
+              <span className="export-tag">✓ Running balance</span>
+              <span className="export-tag">✓ All filters</span>
+            </div>
+            <button className="btn btn--ghost"
+              onClick={handleLedgerExcel}
+              disabled={loading.ledger}>
+              {loading.ledger ? 'Generating...' : 'Download Ledger Excel'}
+            </button>
+          </div>
+
+          {/* Journal Excel */}
+          <div className="export-card">
+            <div className="export-card__title">Journal Entries</div>
+            <div className="export-card__desc">
+              All journal and contra vouchers with account lines,
+              debit and credit amounts. Formatted for accountants.
+            </div>
+            <div className="export-section__what">
+              <span className="export-tag">✓ Formatted</span>
+              <span className="export-tag">✓ Debit = Credit check</span>
+              <span className="export-tag">✓ All lines</span>
+            </div>
+            <button className="btn btn--ghost"
+              onClick={handleJournalExcel}
+              disabled={loading.journal}>
+              {loading.journal ? 'Generating...' : 'Download Journal Excel'}
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  );
+};
+
+export default Export;
+</file>
 
 <file path=".gitignore">
 .env
@@ -1103,7 +1411,27 @@ const JournalEntry = () => {
           </button>
         )}
       </div>
-
+{isAdmin && entries.length > 0 && (
+  <div className="export-bar">
+    <button className="btn btn--ghost" onClick={async () => {
+      try {
+        const res = await API.get('/journals/export/excel', {
+          responseType: 'blob'
+        });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = `journal-entries-${Date.now()}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        alert('Export failed — ' + err.message);
+      }
+    }}>
+      Export to Excel
+    </button>
+  </div>
+)}
       <div className="role-notice" style={{ borderLeftColor: 'var(--amber)' }}>
         Journal entries are for internal adjustments — depreciation, corrections,
         opening entries. For income and expense use Transactions instead.
@@ -2594,7 +2922,8 @@ import {
   getJournalEntries,
   getJournalEntryById,
   createJournalEntry,
-  deleteJournalEntry
+  deleteJournalEntry,
+    exportJournalsExcel   // ADD
 } from '../controllers/journalController.js';
 import protect from '../middleware/auth.js';
 import allow   from '../middleware/role.js';
@@ -2611,7 +2940,7 @@ router.route('/')
 router.route('/:id')
   .get(protect, getJournalEntryById)
   .delete(protect, allow('admin'), deleteJournalEntry);
-
+router.get('/export/excel', protect, allow('admin'), exportJournalsExcel);
 export default router;
 </file>
 
@@ -3616,8 +3945,10 @@ export const seedDefaultAccounts = async (req, res) => {
 </file>
 
 <file path="financeServer/controllers/exportController.js">
-import Transaction from '../models/Transaction.js';
-import Party from '../models/Party.js';
+import Transaction  from '../models/Transaction.js';
+import JournalEntry from '../models/JournalEntry.js';
+import Account      from '../models/Account.js';
+import Party        from '../models/Party.js';
 
 // ── helper: escape XML special characters ─
 const escapeXml = (str) => {
@@ -3636,7 +3967,53 @@ const tallyDate = (date) => {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// ── GET /api/export/tally ─────────────────
+// ── helper: map account type to Tally group ──
+// converts our account types to Tally's standard groups
+const tallyGroup = (account, partyType) => {
+  if (!account) {
+    // fall back to party type if no account linked
+    if (partyType === 'supplier') return 'Sundry Creditors';
+    if (partyType === 'employee') return 'Sundry Creditors';
+    if (partyType === 'client')   return 'Sundry Debtors';
+    return 'Sundry Debtors';
+  }
+
+  const groupMap = {
+    // asset groups
+    'current_asset':      'Current Assets',
+    'fixed_asset':        'Fixed Assets',
+    'other_asset':        'Loans & Advances (Asset)',
+
+    // liability groups
+    'current_liability':  'Current Liabilities',
+    'long_term_liability':'Loans (Liability)',
+
+    // equity groups
+    'owners_equity':      'Capital Account',
+    'retained_earnings':  'Reserves & Surplus',
+
+    // income groups
+    'operating_income':   'Sales Accounts',
+    'other_income':       'Indirect Income',
+
+    // expense groups
+    'operating_expense':  'Indirect Expenses',
+    'other_expense':      'Indirect Expenses',
+  };
+
+  // special cases — Tally has specific names for these
+  if (account.code === '1110') return 'Cash-in-Hand';
+  if (account.code === '1120') return 'Bank Accounts';
+  if (account.code === '2120') return 'Duties & Taxes';
+  if (account.code === '2130') return 'Duties & Taxes';
+
+  return groupMap[account.group] || 'Indirect Expenses';
+};
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/export/tally
+// exports transactions + journal entries to Tally XML
+// ═══════════════════════════════════════════════════════════════
 export const exportToTally = async (req, res) => {
   try {
     const filter = {};
@@ -3651,76 +4028,118 @@ export const exportToTally = async (req, res) => {
       filter.tally_exported = false;
     }
 
-    const transactions = await Transaction.find(filter)
-      .populate('party', 'name vat_number pan_number type')
-      .sort({ date: 1 });
+    // fetch transactions and journal entries
+    const [transactions, journalEntries, allAccounts] = await Promise.all([
+      Transaction.find(filter)
+        .populate('party',   'name vat_number pan_number type')
+        .populate('account', 'code name type group')
+        .sort({ date: 1 }),
 
-    if (transactions.length === 0) {
+      JournalEntry.find(
+        req.query.from || req.query.to ? filter : {}
+      )
+        .populate('lines.account', 'code name type group')
+        .sort({ date: 1 }),
+
+      Account.find({ is_active: true }).sort({ code: 1 })
+    ]);
+
+    if (transactions.length === 0 && journalEntries.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'No transactions found for the selected period'
+        error:   'No transactions or journal entries found for the selected period'
       });
     }
 
-    // ── Step 1: collect all unique ledger names ───────────────
-    // Tally needs to know every account before vouchers are posted
-    // We collect all party names + cash/bank ledgers used
-    const ledgerSet = new Set();
+    // ── Step 1: build master ledger set ──────────────────────
+    // collect every unique account name needed across
+    // transactions and journal entries
+    const ledgerMap = new Map();
+    // key = ledger name, value = { name, group }
 
+    // add all chart of accounts
+    allAccounts.forEach(acc => {
+      ledgerMap.set(acc.name, {
+        name:  acc.name,
+        group: tallyGroup(acc, null)
+      });
+    });
+
+    // add party names from transactions
     transactions.forEach(txn => {
-      const partyName  = txn.party?.name || 'Sundry Account';
-      const cashLedger = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
-      ledgerSet.add(partyName);
-      ledgerSet.add(cashLedger);
+      const partyName = txn.party?.name;
+      if (partyName && !ledgerMap.has(partyName)) {
+        ledgerMap.set(partyName, {
+          name:  partyName,
+          group: tallyGroup(null, txn.party?.type)
+        });
+      }
+
+      // add cash or bank if no account linked
+      if (!txn.account) {
+        const cashLedger = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+        if (!ledgerMap.has(cashLedger)) {
+          ledgerMap.set(cashLedger, {
+            name:  cashLedger,
+            group: cashLedger === 'Cash' ? 'Cash-in-Hand' : 'Bank Accounts'
+          });
+        }
+      }
     });
 
     // ── Step 2: build Ledger Master XML ──────────────────────
-    // This tells Tally "create these accounts first"
-    // before any voucher tries to post into them
-    const ledgerMasters = [...ledgerSet].map(name => {
-
-      // determine which Tally group this ledger belongs to
-      // Cash → Cash-in-Hand, Bank Account → Bank Accounts
-      // party names → Sundry Debtors or Sundry Creditors
-      let group = 'Sundry Debtors'; // default for unknown parties
-
-      if (name === 'Cash') {
-        group = 'Cash-in-Hand';
-      } else if (name === 'Bank Account') {
-        group = 'Bank Accounts';
-      } else {
-        // find the party from transactions to determine type
-        const matchedTxn = transactions.find(t => t.party?.name === name);
-        if (matchedTxn) {
-          const partyType = matchedTxn.party?.type;
-          if (partyType === 'supplier') group = 'Sundry Creditors';
-          if (partyType === 'client')   group = 'Sundry Debtors';
-          if (partyType === 'employee') group = 'Sundry Creditors';
-        }
-      }
-
-      return `
-          <LEDGER NAME="${escapeXml(name)}" ACTION="Create">
-            <NAME>${escapeXml(name)}</NAME>
-            <PARENT>${escapeXml(group)}</PARENT>
+    const ledgerMasters = [...ledgerMap.values()].map(ledger => `
+          <LEDGER NAME="${escapeXml(ledger.name)}" ACTION="Create">
+            <NAME>${escapeXml(ledger.name)}</NAME>
+            <PARENT>${escapeXml(ledger.group)}</PARENT>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>`
+    ).join('');
+
+    // ── Step 3: build opening balance masters ────────────────
+    // export accounts with opening balances as Tally ledgers
+    const openingBalanceMasters = allAccounts
+      .filter(acc => acc.opening_balance > 0)
+      .map(acc => {
+        const amount = acc.opening_balance_type === 'debit'
+          ? -acc.opening_balance  // Tally uses negative for debit opening
+          : acc.opening_balance;
+        return `
+          <LEDGER NAME="${escapeXml(acc.name)}" ACTION="Alter">
+            <NAME>${escapeXml(acc.name)}</NAME>
+            <OPENINGBALANCE>${amount}</OPENINGBALANCE>
           </LEDGER>`;
-    }).join('');
+      }).join('');
 
-    // ── Step 3: build Voucher XML ─────────────────────────────
-    const vouchers = transactions.map(txn => {
-      const partyName    = escapeXml(txn.party?.name || 'Sundry Account');
-      const voucherType  = txn.voucher_type === 'receipt' ? 'Receipt' : 'Payment';
-      const amount       = txn.gross_amount;
-      const narration    = escapeXml(txn.description || '');
-      const refNumber    = escapeXml(txn.bill_ref_number || '');
-      const cashLedger   = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+    // ── Step 4: build Transaction Voucher XML ─────────────────
+    const transactionVouchers = transactions.map(txn => {
+      const partyName   = escapeXml(txn.party?.name || 'Sundry Account');
+      const voucherType = txn.voucher_type === 'receipt' ? 'Receipt' : 'Payment';
+      const amount      = txn.gross_amount;
+      const narration   = escapeXml(txn.description || '');
+      const refNumber   = escapeXml(txn.bill_ref_number || '');
 
-      // receipt → debit cash/bank, credit party
-      // payment → debit party,      credit cash/bank
-      const debitLedger  = txn.type === 'income' ? cashLedger : partyName;
-      const creditLedger = txn.type === 'income' ? partyName  : cashLedger;
+      // use linked account name if available, otherwise cash/bank
+      const cashLedger  = txn.payment_method === 'cash' ? 'Cash' : 'Bank Account';
+      const accountName = txn.account?.name || cashLedger;
+
+      // receipt → debit account, credit party
+      // payment → debit party,   credit account
+      const debitLedger  = txn.type === 'income'
+        ? escapeXml(accountName)
+        : partyName;
+      const creditLedger = txn.type === 'income'
+        ? partyName
+        : escapeXml(accountName);
+
+      // add VAT entry if applicable
+      const vatEntry = txn.vat_applicable && txn.vat_amount > 0 ? `
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>VAT Payable</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>${txn.type === 'income' ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+              <AMOUNT>${txn.type === 'income' ? txn.vat_amount : -txn.vat_amount}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>` : '';
 
       return `
           <VOUCHER REMOTEID="${txn._id}" VCHTYPE="${voucherType}" ACTION="Create">
@@ -3736,14 +4155,42 @@ export const exportToTally = async (req, res) => {
             <ALLLEDGERENTRIES.LIST>
               <LEDGERNAME>${creditLedger}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <AMOUNT>${amount}</AMOUNT>
+              <AMOUNT>${txn.type === 'income' ? txn.net_amount : amount}</AMOUNT>
             </ALLLEDGERENTRIES.LIST>
+            ${vatEntry}
           </VOUCHER>`;
     }).join('');
 
-    // ── Step 4: wrap in Tally XML envelope ───────────────────
-    // Ledger masters come FIRST — vouchers come AFTER
-    // This is the fix — Tally creates accounts before posting
+    // ── Step 5: build Journal Entry Voucher XML ───────────────
+    const journalVouchers = journalEntries.map(entry => {
+      const voucherType = entry.voucher_type === 'contra' ? 'Contra' : 'Journal';
+      const narration   = escapeXml(entry.narration || '');
+      const refNumber   = escapeXml(entry.reference_number || '');
+
+      const lines = entry.lines.map(line => {
+        const ledgerName  = escapeXml(line.account?.name || 'Sundry Account');
+        const isDebit     = line.debit > 0;
+        const amount      = isDebit ? line.debit : line.credit;
+
+        return `
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>${ledgerName}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>${isDebit ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+              <AMOUNT>${isDebit ? -amount : amount}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>`;
+      }).join('');
+
+      return `
+          <VOUCHER REMOTEID="${entry._id}" VCHTYPE="${voucherType}" ACTION="Create">
+            <DATE>${tallyDate(entry.date)}</DATE>
+            <NARRATION>${narration}</NARRATION>
+            <VOUCHERTYPENAME>${voucherType}</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>${refNumber}</VOUCHERNUMBER>
+            ${lines}
+          </VOUCHER>`;
+    }).join('');
+
+    // ── Step 6: wrap in Tally XML envelope ───────────────────
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
@@ -3759,14 +4206,24 @@ export const exportToTally = async (req, res) => {
       </REQUESTDESC>
       <REQUESTDATA>
 
-        <!-- ── Ledger Masters — created first ── -->
+        <!-- ── Ledger Masters ── -->
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
           ${ledgerMasters}
         </TALLYMESSAGE>
 
-        <!-- ── Vouchers — posted after masters ── -->
+        <!-- ── Opening Balances ── -->
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          ${vouchers}
+          ${openingBalanceMasters}
+        </TALLYMESSAGE>
+
+        <!-- ── Transaction Vouchers ── -->
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          ${transactionVouchers}
+        </TALLYMESSAGE>
+
+        <!-- ── Journal and Contra Vouchers ── -->
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          ${journalVouchers}
         </TALLYMESSAGE>
 
       </REQUESTDATA>
@@ -3774,13 +4231,19 @@ export const exportToTally = async (req, res) => {
   </BODY>
 </ENVELOPE>`;
 
-    // ── Step 5: mark as exported ──────────────────────────────
-    await Transaction.updateMany(
-      { _id: { $in: transactions.map(t => t._id) } },
-      { tally_exported: true, tally_exported_at: new Date() }
-    );
+    // ── Step 7: mark transactions as exported ─────────────────
+    await Promise.all([
+      Transaction.updateMany(
+        { _id: { $in: transactions.map(t => t._id) } },
+        { tally_exported: true, tally_exported_at: new Date() }
+      ),
+      JournalEntry.updateMany(
+        { _id: { $in: journalEntries.map(j => j._id) } },
+        { tally_exported: true, tally_exported_at: new Date() }
+      )
+    ]);
 
-    // ── Step 6: send as file download ─────────────────────────
+    // ── Step 8: send as file download ─────────────────────────
     const filename = `tally-export-${Date.now()}.xml`;
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -3795,6 +4258,7 @@ export const exportToTally = async (req, res) => {
 <file path="financeServer/controllers/journalController.js">
 import JournalEntry from '../models/JournalEntry.js';
 import Account      from '../models/Account.js';
+import ExcelJS      from 'exceljs';
 
 // ── GET all journal entries ───────────────
 export const getJournalEntries = async (req, res) => {
@@ -3909,14 +4373,11 @@ export const createJournalEntry = async (req, res) => {
     res.status(201).json({ success: true, data: entry });
 
   } catch (err) {
-    // catch the balance error from pre-validate hook
     res.status(400).json({ success: false, error: err.message });
   }
 };
 
 // ── DELETE journal entry ──────────────────
-// journal entries should not be edited — only deleted and re-entered
-// this maintains audit trail integrity
 export const deleteJournalEntry = async (req, res) => {
   try {
     const entry = await JournalEntry.findById(req.params.id);
@@ -3934,6 +4395,158 @@ export const deleteJournalEntry = async (req, res) => {
       success: true,
       message: 'Journal entry deleted'
     });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /api/journals/export/excel ────────
+// exports all journal entries to a formatted Excel file
+// each entry gets a header row + one row per line
+export const exportJournalsExcel = async (req, res) => {
+  try {
+    const filter = {};
+
+    if (req.query.from || req.query.to) {
+      filter.date = {};
+      if (req.query.from) filter.date.$gte = new Date(req.query.from);
+      if (req.query.to)   filter.date.$lte = new Date(req.query.to);
+    }
+    if (req.query.voucher_type) {
+      filter.voucher_type = req.query.voucher_type;
+    }
+
+    const entries = await JournalEntry.find(filter)
+      .populate('lines.account', 'code name type')
+      .populate('created_by',    'name email')
+      .sort({ date: 1 });
+
+    if (entries.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error:   'No journal entries found for the selected period'
+      });
+    }
+
+    // ── build workbook ────────────────────────
+    const workbook  = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Journal Entries');
+
+    // ── column definitions ────────────────────
+    worksheet.columns = [
+      { header: 'Date',        key: 'date',        width: 14 },
+      { header: 'BS Date',     key: 'bs_date',      width: 14 },
+      { header: 'Type',        key: 'type',         width: 10 },
+      { header: 'Reference',   key: 'reference',    width: 14 },
+      { header: 'Narration',   key: 'narration',    width: 36 },
+      { header: 'Account Code',key: 'code',         width: 12 },
+      { header: 'Account Name',key: 'account',      width: 24 },
+      { header: 'Description', key: 'description',  width: 24 },
+      { header: 'Debit (Rs.)', key: 'debit',        width: 14 },
+      { header: 'Credit (Rs.)',key: 'credit',        width: 14 },
+    ];
+
+    // ── style header row ──────────────────────
+    worksheet.getRow(1).eachCell(cell => {
+      cell.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3F7A' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border    = {
+        bottom: { style: 'thin', color: { argb: 'FFE0DFDB' } }
+      };
+    });
+
+    // ── add entries ───────────────────────────
+    let totalDebit  = 0;
+    let totalCredit = 0;
+
+    entries.forEach((entry, entryIdx) => {
+      const dateStr = new Date(entry.date).toLocaleDateString('en-IN');
+      const isEven  = entryIdx % 2 === 0;
+      const rowBg   = isEven ? 'FFFFFFFF' : 'FFF8F8F6';
+
+      entry.lines.forEach((line, lineIdx) => {
+        const row = worksheet.addRow({
+          date:        lineIdx === 0 ? dateStr : '',
+          bs_date:     lineIdx === 0 ? (entry.bs_date || '') : '',
+          type:        lineIdx === 0 ? entry.voucher_type : '',
+          reference:   lineIdx === 0 ? (entry.reference_number || '') : '',
+          narration:   lineIdx === 0 ? entry.narration : '',
+          code:        line.account?.code || '—',
+          account:     line.account?.name || '—',
+          description: line.description   || '',
+          debit:       line.debit  > 0 ? line.debit  : null,
+          credit:      line.credit > 0 ? line.credit : null,
+        });
+
+        // style the row
+        row.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern', pattern: 'solid',
+            fgColor: { argb: rowBg }
+          };
+          cell.border = {
+            bottom: { style: 'hair', color: { argb: 'FFE0DFDB' } }
+          };
+        });
+
+        // right align debit and credit columns
+        row.getCell('debit').alignment  = { horizontal: 'right' };
+        row.getCell('credit').alignment = { horizontal: 'right' };
+
+        // number format for amounts
+        if (line.debit > 0) {
+          row.getCell('debit').numFmt = '#,##0.00';
+          totalDebit += line.debit;
+        }
+        if (line.credit > 0) {
+          row.getCell('credit').numFmt = '#,##0.00';
+          totalCredit += line.credit;
+        }
+      });
+
+      // add a blank separator row between entries
+      const sepRow = worksheet.addRow({});
+      sepRow.height = 6;
+    });
+
+    // ── totals row ────────────────────────────
+    const totalsRow = worksheet.addRow({
+      narration: 'TOTALS',
+      debit:     totalDebit,
+      credit:    totalCredit,
+    });
+
+    totalsRow.eachCell(cell => {
+      cell.font = { bold: true };
+      cell.fill = {
+        type: 'pattern', pattern: 'solid',
+        fgColor: { argb: 'FFF1F0EE' }
+      };
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FFE0DFDB' } },
+        bottom: { style: 'double', color: { argb: 'FF1F3F7A' } }
+      };
+    });
+
+    totalsRow.getCell('debit').numFmt  = '#,##0.00';
+    totalsRow.getCell('credit').numFmt = '#,##0.00';
+    totalsRow.getCell('debit').alignment  = { horizontal: 'right' };
+    totalsRow.getCell('credit').alignment = { horizontal: 'right' };
+
+    // ── freeze header row ─────────────────────
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // ── send file ─────────────────────────────
+    const filename = `journal-entries-${Date.now()}.xlsx`;
+    res.setHeader('Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${filename}"`);
+
+    await workbook.xlsx.write(res);
+    res.end();
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -4053,6 +4666,7 @@ export default router;
     "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
+    "exceljs": "^4.4.0",
     "express": "^4.18.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^7.0.0",
@@ -4237,6 +4851,11 @@ const Sidebar = () => {
     isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
   Journal Entries
 </NavLink>
+<NavLink to="/export"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Export
+</NavLink>
       </nav>
 
     </div>
@@ -4258,7 +4877,8 @@ const pageTitles = {
   '/categories': 'Categories',
   '/accounts': 'Chart of Accounts',
   '/opening-balances': 'Opening Balances',
-  '/journals': 'Journal Entries'
+  '/journals': 'Journal Entries',
+  '/export': 'Export'
 };
 
 const Topbar = () => {
@@ -4640,6 +5260,7 @@ import Login        from './pages/Login';
 import Categories from './pages/Categories';
 import ChartOfAccounts from './pages/ChartOfAccounts';
 import JournalEntry from './pages/JournalEntry';
+import Export from './pages/Export';
 
 
 import OpeningBalances from './pages/OpeningBalances';
@@ -4689,6 +5310,10 @@ const App = () => {
 } />
 <Route path="/journals" element={
   <ProtectedRoute><Layout><JournalEntry /></Layout></ProtectedRoute>
+} />
+
+<Route path="/export" element={
+  <ProtectedRoute><Layout><Export /></Layout></ProtectedRoute>
 } />
     </Routes>
     
@@ -5990,7 +6615,6 @@ if (activeTab === 'aging') fetchAging({ type: agingType, ...(agingAsOf ? { as_of
     <div className="export-bar">
       <button className="btn btn--ghost" onClick={() => window.print()}>Print Ledger</button>
       <button className="btn btn--ghost" onClick={handleExportExcel}>Export to Excel</button>
-      <button className="btn btn--primary" onClick={handleExportTally}>Export to Tally XML</button>
     </div>
 
     <div className="table-card">
@@ -9266,6 +9890,94 @@ td.expense { color: var(--red);   }
   background: var(--surface-alt);
   border-top: 2px solid var(--border);
   font-size: 13px;
+}
+/* ── Export page ─────────────────────────── */
+.export-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.export-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.export-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.export-section__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.export-section__desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.export-section__filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.export-section__filters .form-group {
+  flex: 1;
+  min-width: 140px;
+}
+
+.export-section__what {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.export-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(15,110,86,0.08);
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+
+.export-card {
+  flex: 1;
+  min-width: 240px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.export-card__desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 </file>
 

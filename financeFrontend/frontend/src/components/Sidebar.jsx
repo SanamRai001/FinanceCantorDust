@@ -50,6 +50,11 @@ const Sidebar = () => {
     isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
   Journal Entries
 </NavLink>
+<NavLink to="/export"
+  className={({ isActive }) =>
+    isActive ? 'sidebar_link sidebar_link--active' : 'sidebar_link'}>
+  Export
+</NavLink>
       </nav>
 
     </div>

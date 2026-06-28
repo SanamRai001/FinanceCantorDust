@@ -9,7 +9,8 @@ const pageTitles = {
   '/categories': 'Categories',
   '/accounts': 'Chart of Accounts',
   '/opening-balances': 'Opening Balances',
-  '/journals': 'Journal Entries'
+  '/journals': 'Journal Entries',
+  '/export': 'Export'
 };
 
 const Topbar = () => {

@@ -10,6 +10,7 @@ import Login        from './pages/Login';
 import Categories from './pages/Categories';
 import ChartOfAccounts from './pages/ChartOfAccounts';
 import JournalEntry from './pages/JournalEntry';
+import Export from './pages/Export';
 
 
 import OpeningBalances from './pages/OpeningBalances';
@@ -59,6 +60,10 @@ const App = () => {
 } />
 <Route path="/journals" element={
   <ProtectedRoute><Layout><JournalEntry /></Layout></ProtectedRoute>
+} />
+
+<Route path="/export" element={
+  <ProtectedRoute><Layout><Export /></Layout></ProtectedRoute>
 } />
     </Routes>
     

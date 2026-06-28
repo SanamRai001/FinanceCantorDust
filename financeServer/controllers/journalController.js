@@ -1,5 +1,6 @@
 import JournalEntry from '../models/JournalEntry.js';
 import Account      from '../models/Account.js';
+import ExcelJS      from 'exceljs';
 
 // ── GET all journal entries ───────────────
 export const getJournalEntries = async (req, res) => {
@@ -114,14 +115,11 @@ export const createJournalEntry = async (req, res) => {
     res.status(201).json({ success: true, data: entry });
 
   } catch (err) {
-    // catch the balance error from pre-validate hook
     res.status(400).json({ success: false, error: err.message });
   }
 };
 
 // ── DELETE journal entry ──────────────────
-// journal entries should not be edited — only deleted and re-entered
-// this maintains audit trail integrity
 export const deleteJournalEntry = async (req, res) => {
   try {
     const entry = await JournalEntry.findById(req.params.id);
@@ -139,6 +137,158 @@ export const deleteJournalEntry = async (req, res) => {
       success: true,
       message: 'Journal entry deleted'
     });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /api/journals/export/excel ────────
+// exports all journal entries to a formatted Excel file
+// each entry gets a header row + one row per line
+export const exportJournalsExcel = async (req, res) => {
+  try {
+    const filter = {};
+
+    if (req.query.from || req.query.to) {
+      filter.date = {};
+      if (req.query.from) filter.date.$gte = new Date(req.query.from);
+      if (req.query.to)   filter.date.$lte = new Date(req.query.to);
+    }
+    if (req.query.voucher_type) {
+      filter.voucher_type = req.query.voucher_type;
+    }
+
+    const entries = await JournalEntry.find(filter)
+      .populate('lines.account', 'code name type')
+      .populate('created_by',    'name email')
+      .sort({ date: 1 });
+
+    if (entries.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error:   'No journal entries found for the selected period'
+      });
+    }
+
+    // ── build workbook ────────────────────────
+    const workbook  = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Journal Entries');
+
+    // ── column definitions ────────────────────
+    worksheet.columns = [
+      { header: 'Date',        key: 'date',        width: 14 },
+      { header: 'BS Date',     key: 'bs_date',      width: 14 },
+      { header: 'Type',        key: 'type',         width: 10 },
+      { header: 'Reference',   key: 'reference',    width: 14 },
+      { header: 'Narration',   key: 'narration',    width: 36 },
+      { header: 'Account Code',key: 'code',         width: 12 },
+      { header: 'Account Name',key: 'account',      width: 24 },
+      { header: 'Description', key: 'description',  width: 24 },
+      { header: 'Debit (Rs.)', key: 'debit',        width: 14 },
+      { header: 'Credit (Rs.)',key: 'credit',        width: 14 },
+    ];
+
+    // ── style header row ──────────────────────
+    worksheet.getRow(1).eachCell(cell => {
+      cell.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3F7A' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border    = {
+        bottom: { style: 'thin', color: { argb: 'FFE0DFDB' } }
+      };
+    });
+
+    // ── add entries ───────────────────────────
+    let totalDebit  = 0;
+    let totalCredit = 0;
+
+    entries.forEach((entry, entryIdx) => {
+      const dateStr = new Date(entry.date).toLocaleDateString('en-IN');
+      const isEven  = entryIdx % 2 === 0;
+      const rowBg   = isEven ? 'FFFFFFFF' : 'FFF8F8F6';
+
+      entry.lines.forEach((line, lineIdx) => {
+        const row = worksheet.addRow({
+          date:        lineIdx === 0 ? dateStr : '',
+          bs_date:     lineIdx === 0 ? (entry.bs_date || '') : '',
+          type:        lineIdx === 0 ? entry.voucher_type : '',
+          reference:   lineIdx === 0 ? (entry.reference_number || '') : '',
+          narration:   lineIdx === 0 ? entry.narration : '',
+          code:        line.account?.code || '—',
+          account:     line.account?.name || '—',
+          description: line.description   || '',
+          debit:       line.debit  > 0 ? line.debit  : null,
+          credit:      line.credit > 0 ? line.credit : null,
+        });
+
+        // style the row
+        row.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern', pattern: 'solid',
+            fgColor: { argb: rowBg }
+          };
+          cell.border = {
+            bottom: { style: 'hair', color: { argb: 'FFE0DFDB' } }
+          };
+        });
+
+        // right align debit and credit columns
+        row.getCell('debit').alignment  = { horizontal: 'right' };
+        row.getCell('credit').alignment = { horizontal: 'right' };
+
+        // number format for amounts
+        if (line.debit > 0) {
+          row.getCell('debit').numFmt = '#,##0.00';
+          totalDebit += line.debit;
+        }
+        if (line.credit > 0) {
+          row.getCell('credit').numFmt = '#,##0.00';
+          totalCredit += line.credit;
+        }
+      });
+
+      // add a blank separator row between entries
+      const sepRow = worksheet.addRow({});
+      sepRow.height = 6;
+    });
+
+    // ── totals row ────────────────────────────
+    const totalsRow = worksheet.addRow({
+      narration: 'TOTALS',
+      debit:     totalDebit,
+      credit:    totalCredit,
+    });
+
+    totalsRow.eachCell(cell => {
+      cell.font = { bold: true };
+      cell.fill = {
+        type: 'pattern', pattern: 'solid',
+        fgColor: { argb: 'FFF1F0EE' }
+      };
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FFE0DFDB' } },
+        bottom: { style: 'double', color: { argb: 'FF1F3F7A' } }
+      };
+    });
+
+    totalsRow.getCell('debit').numFmt  = '#,##0.00';
+    totalsRow.getCell('credit').numFmt = '#,##0.00';
+    totalsRow.getCell('debit').alignment  = { horizontal: 'right' };
+    totalsRow.getCell('credit').alignment = { horizontal: 'right' };
+
+    // ── freeze header row ─────────────────────
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // ── send file ─────────────────────────────
+    const filename = `journal-entries-${Date.now()}.xlsx`;
+    res.setHeader('Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${filename}"`);
+
+    await workbook.xlsx.write(res);
+    res.end();
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

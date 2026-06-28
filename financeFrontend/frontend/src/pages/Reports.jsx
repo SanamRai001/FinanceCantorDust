@@ -347,7 +347,6 @@ if (activeTab === 'aging') fetchAging({ type: agingType, ...(agingAsOf ? { as_of
     <div className="export-bar">
       <button className="btn btn--ghost" onClick={() => window.print()}>Print Ledger</button>
       <button className="btn btn--ghost" onClick={handleExportExcel}>Export to Excel</button>
-      <button className="btn btn--primary" onClick={handleExportTally}>Export to Tally XML</button>
     </div>
 
     <div className="table-card">

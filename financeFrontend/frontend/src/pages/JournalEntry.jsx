@@ -140,7 +140,27 @@ const JournalEntry = () => {
           </button>
         )}
       </div>
-
+{isAdmin && entries.length > 0 && (
+  <div className="export-bar">
+    <button className="btn btn--ghost" onClick={async () => {
+      try {
+        const res = await API.get('/journals/export/excel', {
+          responseType: 'blob'
+        });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = `journal-entries-${Date.now()}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        alert('Export failed — ' + err.message);
+      }
+    }}>
+      Export to Excel
+    </button>
+  </div>
+)}
       <div className="role-notice" style={{ borderLeftColor: 'var(--amber)' }}>
         Journal entries are for internal adjustments — depreciation, corrections,
         opening entries. For income and expense use Transactions instead.

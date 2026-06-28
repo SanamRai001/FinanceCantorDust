@@ -4,7 +4,8 @@ import {
   getJournalEntries,
   getJournalEntryById,
   createJournalEntry,
-  deleteJournalEntry
+  deleteJournalEntry,
+    exportJournalsExcel   // ADD
 } from '../controllers/journalController.js';
 import protect from '../middleware/auth.js';
 import allow   from '../middleware/role.js';
@@ -21,5 +22,5 @@ router.route('/')
 router.route('/:id')
   .get(protect, getJournalEntryById)
   .delete(protect, allow('admin'), deleteJournalEntry);
-
+router.get('/export/excel', protect, allow('admin'), exportJournalsExcel);
 export default router;
