@@ -77,7 +77,9 @@ export const getTransactionById = async (req, res) => {
   try {
     const txn = await Transaction.findById(req.params.id)
       .populate('party',    'name vat_number pan_number type')
-      .populate('category', 'name color type group');
+      .populate('category', 'name color type group')
+      .populate('account',      'code name type group')       // ADD
+  .populate('cash_account', 'code name type group');  
 
     if (!txn) {
       return res.status(404).json({
@@ -121,7 +123,7 @@ export const createTransaction = async (req, res) => {
       payment_method, payment_ref,
       bill_ref_type, bill_ref_number,
       bs_date, category, discount,
-      account
+      account, cash_account
     } = req.body;
     if (account) {
   const accountExists = await Account.findById(account);
@@ -156,7 +158,15 @@ const attachmentPath = req.file
         });
       }
     }
-
+if (cash_account) {
+  const cashAccountExists = await Account.findById(cash_account);
+  if (!cashAccountExists) {
+    return res.status(400).json({
+      success: false,
+      error:   'Cash account not found'
+    });
+  }
+}
     // parse line items from FormData JSON string
     const line_items = parseLineItems(req.body.line_items);
 
@@ -182,13 +192,16 @@ const attachmentPath = req.file
       bs_date:         bs_date         || null,
 attachment: attachmentPath,   // voucher_type — hook sets this
 account: account || null,
+account:      account      || null,
+  cash_account: cash_account || null, 
     });
 
     await txn.save();
     await txn.populate([
       { path: 'party',    select: 'name vat_number type' },
       { path: 'category', select: 'name color type group' },
-      { path: 'account',  select: 'code name type group' }
+      { path: 'account',  select: 'code name type group' },
+        { path: 'cash_account', select: 'code name type group' }  // ADD
     ]);
 
     res.status(201).json({ success: true, data: txn });
@@ -211,7 +224,7 @@ export const updateTransaction = async (req, res) => {
     }
 
    const allowed = [
-  'date', 'type', 'party', 'category', 'account', // ADD account
+  'date', 'type', 'party', 'category', 'account','cash_account', // ADD account
   'description', 'net_amount', 'vat_applicable',
   'vat_percent', 'vat_amount', 'discount',
   'payment_method', 'payment_ref',
@@ -235,7 +248,8 @@ export const updateTransaction = async (req, res) => {
     await txn.populate([
       { path: 'party',    select: 'name vat_number type' },
       { path: 'category', select: 'name color type group' },
-      { path: 'account',  select: 'code name type group' }
+      { path: 'account',  select: 'code name type group' },
+        { path: 'cash_account', select: 'code name type group' }  // ADD
     ]);
 
     res.json({ success: true, data: txn });

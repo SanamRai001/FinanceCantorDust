@@ -12,7 +12,6 @@ import ChartOfAccounts from './pages/ChartOfAccounts';
 import JournalEntry from './pages/JournalEntry';
 import Export from './pages/Export';
 
-
 import OpeningBalances from './pages/OpeningBalances';
 
 

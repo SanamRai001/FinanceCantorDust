@@ -42,19 +42,39 @@ const transactionSchema = new mongoose.Schema({
     default: null
   },
 
-  // ── Account ───────────────────────────────
-  // which account in chart of accounts this hits
-  // e.g. income → Sales Revenue (4100)
-  //      expense → Office Rent (5100)
-  // optional — falls back to category if not set
+  // ── Accounts — two legs ───────────────────
+  // account      = income/expense account
+  //                e.g. Sales Revenue (4100), Office Rent (5100)
+  // cash_account = cash or bank account
+  //                e.g. Cash (1110), Bank Account (1120)
+  //
+  // Together they form a complete double entry:
+  //
+  // Income Rs. 10,000:
+  //   Dr  Bank Account (1120)    10,000   ← cash_account debit
+  //   Cr  Sales Revenue (4100)   10,000   ← account credit
+  //
+  // Expense Rs. 5,000:
+  //   Dr  Office Rent (5100)     5,000    ← account debit
+  //   Cr  Cash (1110)            5,000    ← cash_account credit
+
   account: {
     type:    mongoose.Schema.Types.ObjectId,
     ref:     'Account',
     default: null
+    // income/expense account — optional for backward compatibility
+    // but required for trial balance to work correctly
   },
 
-  // kept for backward compatibility
-  // new transactions should use account reference instead
+  cash_account: {
+    type:    mongoose.Schema.Types.ObjectId,
+    ref:     'Account',
+    default: null
+    // cash or bank account — optional for backward compatibility
+    // should always be set for new transactions
+  },
+
+  // kept for backward compatibility with old transactions
   account_code: {
     type:  String,
     trim:  true
@@ -121,6 +141,23 @@ const transactionSchema = new mongoose.Schema({
     min:     0
   },
 
+  // ── Accounting legs ───────────────────────
+  // auto-set by pre-validate hook
+  // do not touch these manually
+
+  // account leg — income/expense account
+  account_debit:  { type: Number, default: 0 },
+  account_credit: { type: Number, default: 0 },
+
+  // cash leg — cash/bank account
+  cash_debit:  { type: Number, default: 0 },
+  cash_credit: { type: Number, default: 0 },
+
+  // legacy fields — kept for ledger display
+  // equal to gross_amount, sign depends on type
+  debit:  { type: Number, default: 0 },
+  credit: { type: Number, default: 0 },
+
   // ── Payment ──────────────────────────────
   payment_method: {
     type:     String,
@@ -141,17 +178,6 @@ const transactionSchema = new mongoose.Schema({
   bill_ref_number: {
     type:  String,
     trim:  true
-  },
-
-  // ── Accounting ────────────────────────────
-  // debit and credit auto-set by pre-validate hook
-  debit: {
-    type:    Number,
-    default: 0
-  },
-  credit: {
-    type:    Number,
-    default: 0
   },
 
   // ── Dates ─────────────────────────────────
@@ -183,7 +209,8 @@ transactionSchema.index({ date: 1 });
 transactionSchema.index({ type: 1 });
 transactionSchema.index({ party: 1 });
 transactionSchema.index({ category: 1 });
-transactionSchema.index({ account: 1 });        // ADD
+transactionSchema.index({ account: 1 });
+transactionSchema.index({ cash_account: 1 });
 transactionSchema.index({ voucher_type: 1 });
 transactionSchema.index({ tally_exported: 1 });
 
@@ -229,28 +256,55 @@ transactionSchema.pre('validate', function (next) {
   // ── Step 3: calculate gross ───────────────
   this.gross_amount = (this.net_amount || 0) + (this.vat_amount || 0);
 
-  // ── Step 4: set debit and credit ─────────
-  if (this.type === 'income') {
-    this.debit  = this.gross_amount;
-    this.credit = 0;
-  } else {
-    this.debit  = 0;
-    this.credit = this.gross_amount;
-  }
-
-  // ── Step 5: set voucher_type ──────────────
+  // ── Step 4: set voucher_type ──────────────
   if (this.type === 'income') {
     this.voucher_type = 'receipt';
   } else if (this.type === 'expense') {
     this.voucher_type = 'payment';
   }
 
-  // ── Step 6: sync account_code from account ref ──
-  // if account is set but account_code is not
-  // this keeps backward compatibility
-  if (this.account && !this.account_code) {
-    // account_code will be synced in controller
-    // after populate — hook cannot populate refs
+  // ── Step 5: set double entry legs ─────────
+  //
+  // Standard double entry rules:
+  // debit-normal accounts  → asset, expense
+  // credit-normal accounts → liability, equity, income
+  //
+  // Income transaction:
+  //   cash_account (asset)   → DEBIT  (asset increases)
+  //   account (income)       → CREDIT (income increases)
+  //
+  // Expense transaction:
+  //   account (expense)      → DEBIT  (expense increases)
+  //   cash_account (asset)   → CREDIT (asset decreases)
+
+  if (this.type === 'income') {
+    // account leg — income account gets credited
+    this.account_debit  = 0;
+    this.account_credit = this.gross_amount;
+
+    // cash leg — cash/bank account gets debited
+    this.cash_debit  = this.gross_amount;
+    this.cash_credit = 0;
+
+  } else {
+    // account leg — expense account gets debited
+    this.account_debit  = this.gross_amount;
+    this.account_credit = 0;
+
+    // cash leg — cash/bank account gets credited
+    this.cash_debit  = 0;
+    this.cash_credit = this.gross_amount;
+  }
+
+  // ── Step 6: set legacy debit/credit ───────
+  // kept for ledger display and running balance
+  // income → debit (money in), expense → credit (money out)
+  if (this.type === 'income') {
+    this.debit  = this.gross_amount;
+    this.credit = 0;
+  } else {
+    this.debit  = 0;
+    this.credit = this.gross_amount;
   }
 
   next();

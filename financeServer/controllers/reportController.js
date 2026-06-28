@@ -318,11 +318,9 @@ export const getTrialBalance = async (req, res) => {
     // get all active accounts
     const accounts = await Account.find({ is_active: true })
       .sort({ code: 1 });
-
-    // get all transactions in period
-    const transactions = await Transaction.find(filter)
-      .populate('account', 'code name type group');
-
+const transactions = await Transaction.find(filter)
+  .populate('account',      'code name type group')
+  .populate('cash_account', 'code name type group');
     // get all journal entries in period
     const journalEntries = await JournalEntry.find(filter)
       .populate('lines.account', 'code name type');
@@ -344,15 +342,25 @@ export const getTrialBalance = async (req, res) => {
     });
 
     // add transaction amounts to each account
-    transactions.forEach(txn => {
-      if (!txn.account) return; // skip transactions with no account linked
+transactions.forEach(txn => {
+  // ── income/expense account leg ────────────
+  if (txn.account) {
+    const key = txn.account._id?.toString() || txn.account.toString();
+    if (balanceMap[key]) {
+      balanceMap[key].debit  += txn.account_debit  || 0;
+      balanceMap[key].credit += txn.account_credit || 0;
+    }
+  }
 
-      const key = txn.account._id.toString();
-      if (!balanceMap[key]) return;
-
-      balanceMap[key].debit  += txn.debit  || 0;
-      balanceMap[key].credit += txn.credit || 0;
-    });
+  // ── cash/bank account leg ─────────────────
+  if (txn.cash_account) {
+    const key = txn.cash_account._id?.toString() || txn.cash_account.toString();
+    if (balanceMap[key]) {
+      balanceMap[key].debit  += txn.cash_debit  || 0;
+      balanceMap[key].credit += txn.cash_credit || 0;
+    }
+  }
+});
 
     // add journal entry amounts to each account
     journalEntries.forEach(entry => {
@@ -436,10 +444,9 @@ export const getBalanceSheet = async (req, res) => {
       .sort({ code: 1 });
 
     // get all transactions up to asOf date
-    const transactions = await Transaction.find({
-      date: { $lte: asOf }
-    }).populate('account', 'code name type group');
-
+const transactions = await Transaction.find(filter)
+  .populate('account',      'code name type group')
+  .populate('cash_account', 'code name type group');
     // get all journal entries up to asOf date
     const journalEntries = await JournalEntry.find({
       date: { $lte: asOf }
@@ -461,13 +468,33 @@ export const getBalanceSheet = async (req, res) => {
       };
     });
 
-    // add transaction amounts
-    transactions.forEach(txn => {
-      if (!txn.account) return;
-      const key = txn.account._id.toString();
-      if (!balanceMap[key]) return;
-      balanceMap[key].balance += (txn.debit || 0) - (txn.credit || 0);
-    });
+transactions.forEach(txn => {
+  if (!txn.account) return;
+  const key = txn.account._id.toString();
+  if (!balanceMap[key]) return;
+  balanceMap[key].balance += (txn.debit || 0) - (txn.credit || 0);
+});
+
+// WITH this new loop — posts both legs correctly
+transactions.forEach(txn => {
+  // ── income/expense account leg ────────────
+  if (txn.account) {
+    const key = txn.account._id?.toString() || txn.account.toString();
+    if (balanceMap[key]) {
+      balanceMap[key].balance +=
+        (txn.account_debit || 0) - (txn.account_credit || 0);
+    }
+  }
+
+  // ── cash/bank account leg ─────────────────
+  if (txn.cash_account) {
+    const key = txn.cash_account._id?.toString() || txn.cash_account.toString();
+    if (balanceMap[key]) {
+      balanceMap[key].balance +=
+        (txn.cash_debit || 0) - (txn.cash_credit || 0);
+    }
+  }
+});
 
     // add journal entry amounts
     journalEntries.forEach(entry => {

@@ -21,7 +21,8 @@ const emptyForm = {
   bill_ref_type:   'none',
   bill_ref_number: '',
   bs_date:         '',
-  account: '', 
+  account:         '',
+  cash_account:    '',
 };
 
 const emptyItem = { name: '', quantity: 1, unit_price: '', total: 0 };
@@ -30,6 +31,7 @@ const Transactions = () => {
   const [transactions, setTransactions] = useState([]);
   const [parties,      setParties]      = useState([]);
   const [categories,   setCategories]   = useState([]);
+  const [accounts,     setAccounts]     = useState([]);
   const [showForm,     setShowForm]     = useState(false);
   const [error,        setError]        = useState('');
   const [loading,      setLoading]      = useState(true);
@@ -38,7 +40,7 @@ const Transactions = () => {
   const { canEdit }                     = useAuth();
   const [form,         setForm]         = useState(emptyForm);
   const [attachment,   setAttachment]   = useState(null);
-const [accounts, setAccounts] = useState([]);
+
   const fetchTransactions = () => {
     API.get('/transactions')
       .then(res => setTransactions(res.data.data))
@@ -55,11 +57,11 @@ const [accounts, setAccounts] = useState([]);
 
   // ── recalculate totals from line items ────
   const recalcFromLineItems = (items, discount, vatOn, vatPercent) => {
-    const subtotal  = items.reduce((sum, i) =>
+    const subtotal = items.reduce((sum, i) =>
       sum + (Number(i.quantity || 1) * Number(i.unit_price || 0)), 0);
-    const net       = Math.max(0, subtotal - Number(discount || 0));
-    const pct       = Number(vatPercent || 0);
-    const vat       = vatOn ? Math.round(net * (pct / 100) * 100) / 100 : 0;
+    const net  = Math.max(0, subtotal - Number(discount || 0));
+    const pct  = Number(vatPercent || 0);
+    const vat  = vatOn ? Math.round(net * (pct / 100) * 100) / 100 : 0;
     return { subtotal, net_amount: net, vat_amount: vat, gross_amount: net + vat };
   };
 
@@ -72,15 +74,13 @@ const [accounts, setAccounts] = useState([]);
       return newItem;
     });
     setLineItems(updated);
-
-    // recalculate form totals
     const { net_amount, vat_amount, gross_amount } = recalcFromLineItems(
       updated, form.discount, form.vat_applicable, form.vat_percent
     );
     setForm(prev => ({ ...prev, net_amount, vat_amount, gross_amount }));
   };
 
-  const addLineItem = () => setLineItems([...lineItems, { ...emptyItem }]);
+  const addLineItem    = () => setLineItems([...lineItems, { ...emptyItem }]);
 
   const removeLineItem = (index) => {
     const updated = lineItems.filter((_, i) => i !== index);
@@ -100,10 +100,9 @@ const [accounts, setAccounts] = useState([]);
       const net     = parseFloat(name === 'net_amount' ? value : form.net_amount) || 0;
       const vatOn   = name === 'vat_applicable' ? checked : form.vat_applicable;
       const percent = parseFloat(name === 'vat_percent' ? value : form.vat_percent) || 0;
-      const disc    = parseFloat(name === 'discount' ? value : form.discount) || 0;
+      const disc    = parseFloat(name === 'discount'    ? value : form.discount)    || 0;
 
       if (useLineItems) {
-        // recalculate from line items when discount or VAT changes
         const { net_amount, vat_amount, gross_amount } = recalcFromLineItems(
           lineItems, disc, vatOn, percent
         );
@@ -118,12 +117,10 @@ const [accounts, setAccounts] = useState([]);
       }
     }
 
-    // AD → BS auto fill
     if (name === 'date') {
       updated.bs_date = value ? formatBS(value) : '';
     }
 
-    // BS → AD auto fill
     if (name === 'bs_date') {
       const normalized = value.replace(/[\/.]/g, '-');
       if (normalized && /^\d{4}-\d{1,2}-\d{1,2}$/.test(normalized)) {
@@ -132,6 +129,12 @@ const [accounts, setAccounts] = useState([]);
       } else if (!value) {
         updated.date = '';
       }
+    }
+
+    // when type changes clear account so wrong type accounts are not kept
+    if (name === 'type') {
+      updated.account      = '';
+      updated.cash_account = '';
     }
 
     setForm(updated);
@@ -152,16 +155,12 @@ const [accounts, setAccounts] = useState([]);
     setError('');
     try {
       const data = new FormData();
-
       Object.entries(form).forEach(([key, val]) => {
         data.append(key, val);
       });
-
-      // send line items as JSON string
       if (useLineItems && lineItems.length > 0) {
         data.append('line_items', JSON.stringify(lineItems));
       }
-
       if (attachment) data.append('attachment', attachment);
 
       await API.post('/transactions', data, {
@@ -177,6 +176,9 @@ const [accounts, setAccounts] = useState([]);
   };
 
   const fmt = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
+
+  // ── helper: get account name by id ───────
+  const getAccountName = (id) => accounts.find(a => a._id === id)?.name || '';
 
   if (loading) return <div className="page-loading">Loading...</div>;
 
@@ -203,12 +205,12 @@ const [accounts, setAccounts] = useState([]);
           <div className="type-toggle">
             <button type="button"
               className={`type-btn ${form.type === 'income' ? 'type-btn--income' : ''}`}
-              onClick={() => setForm({ ...form, type: 'income' })}>
+              onClick={() => setForm({ ...form, type: 'income', account: '', cash_account: '' })}>
               Income
             </button>
             <button type="button"
               className={`type-btn ${form.type === 'expense' ? 'type-btn--expense' : ''}`}
-              onClick={() => setForm({ ...form, type: 'expense' })}>
+              onClick={() => setForm({ ...form, type: 'expense', account: '', cash_account: '' })}>
               Expense
             </button>
           </div>
@@ -253,26 +255,79 @@ const [accounts, setAccounts] = useState([]);
                 }
               </select>
             </div>
-            {/* Account */}
-<div className="form-group">
-  <label>Account (Chart of Accounts)</label>
-  <select name="account" value={form.account} onChange={handleChange}>
-    <option value="">— Select account —</option>
-    {accounts
-      .filter(a =>
-        a.is_active &&
-        (form.type === 'income'
-          ? ['income', 'asset'].includes(a.type)
-          : ['expense', 'liability'].includes(a.type))
-      )
-      .map(a => (
-        <option key={a._id} value={a._id}>
-          {a.code} — {a.name}
-        </option>
-      ))
-    }
-  </select>
-</div>
+
+            {/* Account — income/expense leg */}
+            <div className="form-group">
+              <label>
+                {form.type === 'income' ? 'Income Account' : 'Expense Account'}
+              </label>
+              <select name="account" value={form.account} onChange={handleChange}>
+                <option value="">— Select account —</option>
+                {accounts
+                  .filter(a =>
+                    a.is_active &&
+                    (form.type === 'income'
+                      ? a.type === 'income'
+                      : a.type === 'expense')
+                  )
+                  .map(a => (
+                    <option key={a._id} value={a._id}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+
+            {/* Cash account — cash/bank leg */}
+            <div className="form-group">
+              <label>Cash / Bank Account</label>
+              <select name="cash_account" value={form.cash_account}
+                onChange={handleChange}>
+                <option value="">— Select cash or bank —</option>
+                {accounts
+                  .filter(a =>
+                    a.is_active &&
+                    a.type === 'asset' &&
+                    ['1110', '1120'].includes(a.code)
+                  )
+                  .map(a => (
+                    <option key={a._id} value={a._id}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+
+            {/* Double entry preview — shows when both accounts selected */}
+            {form.account && form.cash_account && (
+              <div style={{
+                gridColumn:    '1 / -1',
+                background:    'rgba(46,94,168,0.06)',
+                border:        '1px solid rgba(46,94,168,0.15)',
+                borderRadius:  'var(--radius)',
+                padding:       '10px 14px',
+                fontSize:      12,
+                color:         'var(--text-muted)',
+                display:       'flex',
+                gap:           16,
+              }}>
+                <span>
+                  <strong style={{ color: 'var(--green)' }}>Dr</strong>{' '}
+                  {form.type === 'income'
+                    ? getAccountName(form.cash_account)
+                    : getAccountName(form.account)}
+                </span>
+                <span style={{ color: 'var(--border)' }}>|</span>
+                <span>
+                  <strong style={{ color: 'var(--red)' }}>Cr</strong>{' '}
+                  {form.type === 'income'
+                    ? getAccountName(form.account)
+                    : getAccountName(form.cash_account)}
+                </span>
+              </div>
+            )}
 
             {/* Description */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -284,8 +339,9 @@ const [accounts, setAccounts] = useState([]);
 
           </div>
 
-          {/* ── Line items toggle ── */}
-          <div className="form-group--center" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {/* Line items toggle */}
+          <div className="form-group--center"
+            style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input type="checkbox" id="useLineItems"
               checked={useLineItems}
               onChange={e => {
@@ -294,12 +350,13 @@ const [accounts, setAccounts] = useState([]);
                   setLineItems([{ ...emptyItem }]);
                 }
               }} />
-            <label htmlFor="useLineItems" style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', cursor: 'pointer' }}>
+            <label htmlFor="useLineItems"
+              style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', cursor: 'pointer' }}>
               Add line items (multiple products on one bill)
             </label>
           </div>
 
-          {/* ── Line items table ── */}
+          {/* Line items table */}
           {useLineItems && (
             <div className="line-items">
               <table className="table line-items__table">
@@ -310,7 +367,6 @@ const [accounts, setAccounts] = useState([]);
                     <th style={{ width: 120 }}>Unit price</th>
                     <th style={{ width: 120 }}>Total</th>
                     <th style={{ width: 40 }}></th>
-                    
                   </tr>
                 </thead>
                 <tbody>
@@ -360,7 +416,7 @@ const [accounts, setAccounts] = useState([]);
                 onChange={handleChange} placeholder="0.00" min="0" />
             </div>
 
-            {/* Net amount — readonly if line items, editable otherwise */}
+            {/* Net amount */}
             <div className="form-group">
               <label>Net Amount {useLineItems ? '(auto)' : '*'}</label>
               <input type="number" name="net_amount"
@@ -414,17 +470,17 @@ const [accounts, setAccounts] = useState([]);
               </select>
             </div>
 
-            {/* Conditional payment reference */}
+            {/* Payment reference */}
             {form.payment_method === 'cheque' && (
               <div className="form-group">
-                <label>Cheque Number *</label>
+                <label>Cheque Number</label>
                 <input type="text" name="payment_ref" value={form.payment_ref}
                   onChange={handleChange} placeholder="e.g. 004521" />
               </div>
             )}
             {form.payment_method === 'bank' && (
               <div className="form-group">
-                <label>Bank Transfer ID *</label>
+                <label>Bank Transfer ID</label>
                 <input type="text" name="payment_ref" value={form.payment_ref}
                   onChange={handleChange} placeholder="e.g. TXN20250601001" />
               </div>
@@ -441,7 +497,7 @@ const [accounts, setAccounts] = useState([]);
               </select>
             </div>
 
-            {/* Bill reference number — conditional */}
+            {/* Bill reference number */}
             {form.bill_ref_type !== 'none' && (
               <div className="form-group">
                 <label>
@@ -478,6 +534,7 @@ const [accounts, setAccounts] = useState([]);
               <th>Party</th>
               <th>Category</th>
               <th>Account</th>
+              <th>Cash Acc</th>
               <th>Description</th>
               <th>Type</th>
               <th>Payment</th>
@@ -489,8 +546,8 @@ const [accounts, setAccounts] = useState([]);
           <tbody>
             {transactions.length === 0 && (
               <tr>
-<td colSpan={9} className="table__empty">
-                    No transactions yet — add one above
+                <td colSpan={11} className="table__empty">
+                  No transactions yet — add one above
                 </td>
               </tr>
             )}
@@ -509,10 +566,15 @@ const [accounts, setAccounts] = useState([]);
                   ) : '—'}
                 </td>
                 <td className="muted">
-  {t.account
-    ? `${t.account.code} — ${t.account.name}`
-    : '—'}
-</td>
+                  {t.account
+                    ? `${t.account.code} — ${t.account.name}`
+                    : '—'}
+                </td>
+                <td className="muted">
+                  {t.cash_account
+                    ? `${t.cash_account.code} — ${t.cash_account.name}`
+                    : '—'}
+                </td>
                 <td>{t.description || '—'}</td>
                 <td>
                   <span className={`badge badge--${t.type}`}>{t.type}</span>
@@ -528,12 +590,9 @@ const [accounts, setAccounts] = useState([]);
                 </td>
                 <td>
                   {t.attachment ? (
-                    <a
-                      href={getFileUrl(t.attachment)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="attachment-link"
-                    >
+                    <a href={getFileUrl(t.attachment)}
+                      target="_blank" rel="noreferrer"
+                      className="attachment-link">
                       View
                     </a>
                   ) : '—'}
